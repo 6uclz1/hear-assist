@@ -1,16 +1,16 @@
 {
   "files": {
     "main.css": "/hear-assist/static/css/main.b485e26e.css",
-    "main.js": "/hear-assist/static/js/main.2ef3a2b2.js",
+    "main.js": "/hear-assist/static/js/main.f45bfe38.js",
     "static/js/787.49e25592.chunk.js": "/hear-assist/static/js/787.49e25592.chunk.js",
     "service-worker.js": "/hear-assist/service-worker.js",
     "index.html": "/hear-assist/index.html",
     "main.b485e26e.css.map": "/hear-assist/static/css/main.b485e26e.css.map",
-    "main.2ef3a2b2.js.map": "/hear-assist/static/js/main.2ef3a2b2.js.map",
+    "main.f45bfe38.js.map": "/hear-assist/static/js/main.f45bfe38.js.map",
     "787.49e25592.chunk.js.map": "/hear-assist/static/js/787.49e25592.chunk.js.map"
   },
   "entrypoints": [
     "static/css/main.b485e26e.css",
-    "static/js/main.2ef3a2b2.js"
+    "static/js/main.f45bfe38.js"
   ]
 }
