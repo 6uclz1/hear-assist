@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 import './SpeechRecognitionComponent.css'
 import AutoScrollingText from './AutoScrollingText';
@@ -8,7 +8,8 @@ const SpeechRecognitionComponent = () => {
     transcript,
     listening,
     resetTranscript,
-    browserSupportsSpeechRecognition
+    browserSupportsSpeechRecognition,
+    isMicrophoneAvailable
   } = useSpeechRecognition();
   
   const displayRef :any = useRef(null);
@@ -20,19 +21,30 @@ const SpeechRecognitionComponent = () => {
 
     scrollToBottom();
   }, [transcript]);
+
+  const [selectedLanguage, setSelectedLanguage] = useState("");
+
+  const handleChange = (event: { target: { value: React.SetStateAction<string>; }; }) => {
+    setSelectedLanguage(event.target.value);
+  };
   
   if (!browserSupportsSpeechRecognition) {
     return <span>Browser doesn't support speech recognition.</span>;
   }
 
+  if (!isMicrophoneAvailable) {
+    return <span>Please enable microphone permission.</span>;
+  }
+
   const startClick = () => {
-    SpeechRecognition.startListening({ continuous: true });
+    if (selectedLanguage != null || selectedLanguage !== '') {
+      SpeechRecognition.startListening({ continuous: true, language: selectedLanguage });
+    }
   };
 
   const stopClick = () => {
     SpeechRecognition.stopListening();
   };
-
 
   return (
     <div>
@@ -40,7 +52,11 @@ const SpeechRecognitionComponent = () => {
       <button onClick={startClick}>▶️</button>
       <button onClick={stopClick}>■</button>
       <button onClick={resetTranscript}>🗑️</button>
-      {/* <div ref={displayRef} className='text'>{transcript}</div> */}
+      <select value={selectedLanguage} onChange={handleChange}>
+        <option value="">select language.</option>
+        <option value="en-US">en</option>
+        <option value="ja">ja</option>
+      </select>
       <div>
         <AutoScrollingText text={transcript} />
       </div>
