@@ -34,7 +34,7 @@ const selectWebSpeech = () => {
 test('starts in a simple, high-contrast ReazonSpeech experience', () => {
   render(<App />);
   expect(screen.getByRole('button', { name: '字幕を開始' })).toBeInTheDocument();
-  expect(screen.getByText('停止中')).toBeInTheDocument();
+  expect(screen.getByText('停止中', { selector: '.live-state strong' })).toBeInTheDocument();
   expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
   expect(screen.getByLabelText('文字起こし表示')).toHaveClass('contrast-dark');
 

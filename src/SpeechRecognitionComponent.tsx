@@ -101,6 +101,7 @@ const SpeechRecognitionComponent = () => {
   const [droppedChunkCount, setDroppedChunkCount] = useState(0);
   const [lastDroppedAt, setLastDroppedAt] = useState<number | null>(null);
   const [volumeLevel, setVolumeLevel] = useState(0);
+  const [volumeRms, setVolumeRms] = useState<number | null>(null);
   const [volumeDb, setVolumeDb] = useState<number | null>(null);
   const [meterError, setMeterError] = useState('');
   const [diagnosticStatus, setDiagnosticStatus] = useState<DiagnosticStatus>({
@@ -350,6 +351,7 @@ const SpeechRecognitionComponent = () => {
     }
 
     setVolumeLevel(0);
+    setVolumeRms(null);
     setVolumeDb(null);
   }, []);
 
@@ -412,6 +414,7 @@ const SpeechRecognitionComponent = () => {
           const db = Math.max(-60, 20 * Math.log10(Math.max(rms, 0.001)));
           const level = Math.min(100, Math.max(0, ((db + 60) / 60) * 100));
 
+          setVolumeRms(rms);
           setVolumeDb(db);
           setVolumeLevel(level);
           lastMeterUpdateRef.current = timestamp;
@@ -835,8 +838,8 @@ const SpeechRecognitionComponent = () => {
   return (
     <main id="main-content" className="app-shell">
       <h1 className="visually-hidden">Hear Assist</h1>
-      <AutoScrollingText text={displayedTranscript} highlightedText={displayedHighlight} active={isActive} status={captionStatus} lastRecognitionLabel={lastRecognitionLabel} contrast={subtitleContrast} focus={subtitleFocus} lineHeight={subtitleLineHeight} startDisabled={startDisabled} onStart={startClick} onStop={stopClick} onClear={clearTranscript} onOpenSettings={openSettings} />
-      {showSettings && <SettingsDialog active={isActive || starting} mode={recognitionMode} onModeChange={changeRecognitionMode} language={selectedLanguage} onLanguageChange={setSelectedLanguage} span={recognitionSpan} spans={RECOGNITION_SPANS} onSpanChange={setRecognitionSpan} contrast={subtitleContrast} onContrastChange={setSubtitleContrast} focus={subtitleFocus} onFocusChange={setSubtitleFocus} lineHeight={subtitleLineHeight} onLineHeightChange={setSubtitleLineHeight} modelState={reazonModelState} modelProgress={reazonProgress} meter={{ level: volumeLevel, db: volumeDb, error: meterError }} diagnostics={{ status: diagnosticStatus, finding: diagnosticFinding, pendingCount: reazonPendingCount, steps: [heardSound, detectedSpeech, receivedResult], labels: stepLabels, logs: diagnosticLog }} onClose={closeSettings} onOpenMicGuide={isIOS ? openMicGuide : undefined} />}
+      <AutoScrollingText text={displayedTranscript} highlightedText={displayedHighlight} active={isActive} status={captionStatus} lastRecognitionLabel={lastRecognitionLabel} inputLevel={{ rms: volumeRms, db: volumeDb, level: volumeLevel }} contrast={subtitleContrast} focus={subtitleFocus} lineHeight={subtitleLineHeight} startDisabled={startDisabled} onStart={startClick} onStop={stopClick} onClear={clearTranscript} onOpenSettings={openSettings} />
+      {showSettings && <SettingsDialog active={isActive || starting} mode={recognitionMode} onModeChange={changeRecognitionMode} language={selectedLanguage} onLanguageChange={setSelectedLanguage} span={recognitionSpan} spans={RECOGNITION_SPANS} onSpanChange={setRecognitionSpan} contrast={subtitleContrast} onContrastChange={setSubtitleContrast} focus={subtitleFocus} onFocusChange={setSubtitleFocus} lineHeight={subtitleLineHeight} onLineHeightChange={setSubtitleLineHeight} modelState={reazonModelState} modelProgress={reazonProgress} meter={{ level: volumeLevel, rms: volumeRms, db: volumeDb, error: meterError }} diagnostics={{ status: diagnosticStatus, finding: diagnosticFinding, pendingCount: reazonPendingCount, steps: [heardSound, detectedSpeech, receivedResult], labels: stepLabels, logs: diagnosticLog }} onClose={closeSettings} onOpenMicGuide={isIOS ? openMicGuide : undefined} />}
       <Activity mode={showMicModeGuide ? 'visible' : 'hidden'}><MicModeDialog onClose={() => setShowMicModeGuide(false)} /></Activity>
     </main>
   );
