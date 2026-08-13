@@ -2,8 +2,6 @@ import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import AutoScrollingText from './AutoScrollingText';
 
-window.HTMLElement.prototype.scrollTo = jest.fn();
-
 test('highlights the latest transcript chunk', () => {
   render(
     <AutoScrollingText
