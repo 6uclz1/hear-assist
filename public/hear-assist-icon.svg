@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">Hear Assist</title>
+  <desc id="description">音声波形と字幕を組み合わせたHear Assistのアイコン</desc>
+  <defs>
+    <linearGradient id="background" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1687ED"/>
+      <stop offset="1" stop-color="#0750AE"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#background)"/>
+  <g>
+    <path fill="#fff" d="M202 204h620c46 0 84 38 84 84v402c0 46-38 84-84 84H514L343 874c-24 14-54-3-54-31v-69h-87c-46 0-84-38-84-84V288c0-46 38-84 84-84Z"/>
+  </g>
+  <g fill="#0864C7">
+    <rect x="232" y="391" width="64" height="126" rx="32"/>
+    <rect x="326" y="317" width="64" height="274" rx="32"/>
+    <rect x="420" y="356" width="64" height="196" rx="32"/>
+    <rect x="514" y="280" width="64" height="348" rx="32"/>
+    <rect x="608" y="344" width="64" height="220" rx="32"/>
+    <rect x="702" y="391" width="64" height="126" rx="32"/>
+  </g>
+  <rect x="232" y="656" width="536" height="38" rx="19" fill="#BDDDFB"/>
+  <rect x="232" y="718" width="374" height="38" rx="19" fill="#BDDDFB"/>
+</svg>

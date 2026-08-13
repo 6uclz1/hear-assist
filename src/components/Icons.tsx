@@ -20,3 +20,13 @@ export const MinusIcon = (props: IconProps) => <Icon {...props}><path d="M5 12h1
 export const PlusIcon = (props: IconProps) => <Icon {...props}><path d="M12 5v14M5 12h14" /></Icon>;
 export const CheckIcon = (props: IconProps) => <Icon {...props}><path d="m5 12 4 4L19 6" /></Icon>;
 export const AlertIcon = (props: IconProps) => <Icon {...props}><path d="M12 3 2.7 20h18.6L12 3Z" /><path d="M12 9v4M12 17h.01" /></Icon>;
+
+export const HearAssistLogo = (props: IconProps) => (
+  <svg aria-hidden="true" viewBox="0 0 48 48" fill="none" {...props}>
+    <rect width="48" height="48" rx="13" fill="url(#hear-assist-gradient)" />
+    <path fill="#fff" d="M9.5 10h29A4.5 4.5 0 0 1 43 14.5v19a4.5 4.5 0 0 1-4.5 4.5H25l-8.2 5c-1 .6-2.3-.1-2.3-1.3V38h-5A4.5 4.5 0 0 1 5 33.5v-19A4.5 4.5 0 0 1 9.5 10Z" />
+    <g fill="#0864C7"><rect x="10" y="20" width="3" height="7" rx="1.5" /><rect x="15" y="16" width="3" height="15" rx="1.5" /><rect x="20" y="18" width="3" height="11" rx="1.5" /><rect x="25" y="14" width="3" height="19" rx="1.5" /><rect x="30" y="17" width="3" height="13" rx="1.5" /><rect x="35" y="20" width="3" height="7" rx="1.5" /></g>
+    <path stroke="#BDDDFB" strokeWidth="2" strokeLinecap="round" d="M11 34h26M11 37h17" />
+    <defs><linearGradient id="hear-assist-gradient" x1="5" y1="3" x2="43" y2="46" gradientUnits="userSpaceOnUse"><stop stopColor="#1687ED" /><stop offset="1" stopColor="#0750AE" /></linearGradient></defs>
+  </svg>
+);
