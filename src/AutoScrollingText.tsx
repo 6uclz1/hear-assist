@@ -15,6 +15,7 @@ type Props = {
   active?: boolean;
   status?: CaptionStatus;
   lastRecognitionLabel?: string;
+  inputLevel?: { rms: number | null; db: number | null; level: number };
   contrast?: SubtitleContrast;
   focus?: SubtitleFocus;
   lineHeight?: number;
@@ -49,7 +50,7 @@ const focusParts = (text: string, highlightedText: string, focus: SubtitleFocus)
 const AutoScrollingText: React.FC<Props> = ({
   text, highlightedText = '', active = false,
   status = { tone: 'stopped', label: '停止中', detail: '開始ボタンを押してください' },
-  lastRecognitionLabel = 'まだありません', contrast = 'dark', focus = 'two', lineHeight = 1.5,
+  lastRecognitionLabel = 'まだありません', inputLevel = { rms: null, db: null, level: 0 }, contrast = 'dark', focus = 'two', lineHeight = 1.5,
   startDisabled = false, onStart, onStop, onClear, onOpenSettings,
 }) => {
   const [fontSize, setFontSize] = useState(64);
@@ -57,6 +58,14 @@ const AutoScrollingText: React.FC<Props> = ({
   const displayRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<HTMLElement>(null);
   const parts = useMemo(() => focusParts(text, highlightedText, focus), [focus, highlightedText, text]);
+  const inputLabel = inputLevel.db === null ? '停止中'
+    : inputLevel.db < -50 ? 'ほぼ無音'
+      : inputLevel.db < -35 ? '小さい'
+        : inputLevel.db <= -12 ? '適正' : '大きい';
+  const inputTone = inputLevel.db === null ? 'idle'
+    : inputLevel.db < -50 ? 'silent'
+      : inputLevel.db < -35 ? 'low'
+        : inputLevel.db <= -12 ? 'good' : 'high';
 
   const scrollToLatest = useEffectEvent(() => displayRef.current?.scrollTo({ top: displayRef.current.scrollHeight, behavior: 'smooth' }));
   useEffect(() => { scrollToLatest(); }, [text]);
@@ -92,6 +101,13 @@ const AutoScrollingText: React.FC<Props> = ({
         <div className={`live-state state-${status.tone}`} role="status" aria-live="polite">
           <span className="state-dot" aria-hidden="true" />
           <span><strong>{status.label}</strong><small>{status.detail}</small></span>
+        </div>
+        <div className={`input-level input-${inputTone}`} aria-label="マイク入力音量">
+          <div className="input-level-heading"><span>入力音量</span><strong>{inputLabel}</strong></div>
+          <div className="input-level-readout"><output>{inputLevel.rms === null ? 'RMS —' : `RMS ${inputLevel.rms.toFixed(3)}`}</output><small>{inputLevel.db === null ? '— dBFS' : `${inputLevel.db.toFixed(0)} dBFS`}</small></div>
+          <div className="input-level-track" role="meter" aria-label="RMS入力レベル" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(inputLevel.level)} aria-valuetext={inputLevel.rms === null ? '計測停止中' : `${inputLabel}、RMS ${inputLevel.rms.toFixed(3)}、${inputLevel.db?.toFixed(0)} dBFS`}>
+            <span style={{ width: `${inputLevel.level}%` }} />
+          </div>
         </div>
         <div className="last-caption-time"><span>最終認識</span><strong>{lastRecognitionLabel}</strong></div>
         <button className="stage-tool settings-tool" type="button" onClick={onOpenSettings}><SettingsIcon /><span>設定</span></button>
