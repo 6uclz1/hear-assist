@@ -2,26 +2,24 @@ import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import App from './App';
 
-window.HTMLElement.prototype.scrollTo = jest.fn();
-
 const mockRecognition = new EventTarget();
 
-jest.mock('./createReazonWorker', () => ({
-  createReazonWorker: jest.fn(),
+vi.mock('./createReazonWorker', () => ({
+  createReazonWorker: vi.fn(),
 }));
 
-jest.mock('react-speech-recognition', () => ({
+vi.mock('react-speech-recognition', () => ({
   __esModule: true,
   default: {
-    startListening: jest.fn(),
-    stopListening: jest.fn(),
+    startListening: vi.fn(),
+    stopListening: vi.fn(),
     getRecognition: () => mockRecognition,
   },
   useSpeechRecognition: () => ({
     transcript: '',
     interimTranscript: '',
     listening: false,
-    resetTranscript: jest.fn(),
+    resetTranscript: vi.fn(),
     browserSupportsSpeechRecognition: true,
     isMicrophoneAvailable: true,
   }),
@@ -34,15 +32,15 @@ test('renders speech recognition controls with Japanese selected', async () => {
   });
 
   render(<App />);
-  expect(screen.getByRole('button', { name: '音声認識を開始' })).toBeInTheDocument();
-  expect(screen.getByRole('combobox', { name: '認識言語' })).toHaveValue('ja-JP');
+  expect(screen.getByRole('button', { name: '認識を開始' })).toBeInTheDocument();
+  expect(screen.getByRole('combobox', { name: '言語' })).toHaveValue('ja-JP');
   expect(screen.getByRole('combobox', { name: '認識方式' })).toHaveValue('web-speech');
   expect(screen.getByRole('meter', { name: 'マイク入力レベル' })).toHaveAttribute(
     'aria-valuetext',
     '計測停止中',
   );
 
-  fireEvent.click(screen.getByRole('button', { name: '音声認識を開始' }));
+  fireEvent.click(screen.getByRole('button', { name: '認識を開始' }));
   expect(await screen.findByRole('dialog')).toHaveTextContent('ワイドスペクトル');
 });
 
@@ -53,12 +51,12 @@ test('keeps local ReazonSpeech available alongside Web Speech', () => {
   });
 
   expect(screen.getByRole('combobox', { name: '認識方式' })).toHaveValue('reazon-speech');
-  expect(screen.getByRole('combobox', { name: '認識スパン' })).toHaveValue('standard');
-  expect(screen.getByRole('combobox', { name: '認識スパン' })).toHaveTextContent('高速（4秒）');
-  expect(screen.getByRole('combobox', { name: '認識スパン' })).toHaveTextContent('高精度（10秒）');
-  expect(screen.getByLabelText('ReazonSpeech設定')).toHaveTextContent('6秒の音声を、約4秒間隔');
+  expect(screen.getByRole('combobox', { name: '字幕の更新速度' })).toHaveValue('standard');
+  expect(screen.getByRole('combobox', { name: '字幕の更新速度' })).toHaveTextContent('高速（4秒）');
+  expect(screen.getByRole('combobox', { name: '字幕の更新速度' })).toHaveTextContent('高精度（10秒）');
+  expect(screen.getByText('6秒の音声を約4秒間隔で処理します。')).toBeInTheDocument();
   expect(screen.getByLabelText('ローカルモデルの状態')).toHaveTextContent('初回約180MB');
-  expect(screen.getByRole('combobox', { name: '認識言語' })).toBeDisabled();
+  expect(screen.getByRole('combobox', { name: '言語' })).toBeDisabled();
 });
 
 test('changes the local recognition span', () => {
@@ -66,12 +64,12 @@ test('changes the local recognition span', () => {
   fireEvent.change(screen.getByRole('combobox', { name: '認識方式' }), {
     target: { value: 'reazon-speech' },
   });
-  fireEvent.change(screen.getByRole('combobox', { name: '認識スパン' }), {
+  fireEvent.change(screen.getByRole('combobox', { name: '字幕の更新速度' }), {
     target: { value: 'fast' },
   });
 
-  expect(screen.getByRole('combobox', { name: '認識スパン' })).toHaveValue('fast');
-  expect(screen.getByLabelText('ReazonSpeech設定')).toHaveTextContent('4秒の音声を、約3秒間隔');
+  expect(screen.getByRole('combobox', { name: '字幕の更新速度' })).toHaveValue('fast');
+  expect(screen.getByText('4秒の音声を約3秒間隔で処理します。')).toBeInTheDocument();
 });
 
 test('diagnoses sound that is not classified as speech', () => {
@@ -84,8 +82,8 @@ test('diagnoses sound that is not classified as speech', () => {
 
   expect(screen.getByText('音声入力を検出しました。発話判定を待っています。')).toBeInTheDocument();
   const progress = within(screen.getByLabelText('認識処理の進行状況'));
-  expect(progress.getByText(/入力音/)).toHaveClass('is-detected');
-  expect(progress.getByText(/発話判定/)).not.toHaveClass('is-detected');
+  expect(progress.getByText(/入力音/)).toHaveClass('is-complete');
+  expect(progress.getByText(/発話判定/)).not.toHaveClass('is-complete');
 
   act(() => {
     mockRecognition.dispatchEvent(new Event('end'));
@@ -106,8 +104,8 @@ test('diagnoses speech that does not produce a recognition result', () => {
 
   expect(screen.getAllByText('発話は検出されましたが、認識結果が返りませんでした。')).toHaveLength(2);
   const progress = within(screen.getByLabelText('認識処理の進行状況'));
-  expect(progress.getByText(/発話判定/)).toHaveClass('is-detected');
-  expect(progress.getByText(/認識結果/)).not.toHaveClass('is-detected');
+  expect(progress.getByText(/発話判定/)).toHaveClass('is-complete');
+  expect(progress.getByText(/認識結果/)).not.toHaveClass('is-complete');
 });
 
 test('records nomatch and recognition errors in the event log', () => {

@@ -1,20 +1,24 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Activity, useCallback, useEffect, useRef, useState } from 'react';
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 import './SpeechRecognitionComponent.css'
 import AutoScrollingText from './AutoScrollingText';
+import { DiagnosticsPanel } from './components/DiagnosticsPanel';
+import { InputMeter } from './components/InputMeter';
+import { MicModeDialog } from './components/MicModeDialog';
+import { RecognitionControls } from './components/RecognitionControls';
 import { createReazonWorker } from './createReazonWorker';
 import { downsampleAudio, joinAudioChunks, keepLastSamples, mergeTranscriptChunk, SAMPLE_RATE } from './reazonSpeech';
 
-type RecognitionMode = 'web-speech' | 'reazon-speech';
-type RecognitionSpan = 'fast' | 'standard' | 'accurate';
+export type RecognitionMode = 'web-speech' | 'reazon-speech';
+export type RecognitionSpan = 'fast' | 'standard' | 'accurate';
 type DiagnosticTone = 'idle' | 'listening' | 'success' | 'warning' | 'error';
 
-type DiagnosticStatus = {
+export type DiagnosticStatus = {
   tone: DiagnosticTone;
   message: string;
 };
 
-type DiagnosticLogEntry = {
+export type DiagnosticLogEntry = {
   id: number;
   time: string;
   event: string;
@@ -36,11 +40,13 @@ type ReazonWorkerMessage = {
   message?: string;
 };
 
-const RECOGNITION_SPANS: Record<RecognitionSpan, {
+export type RecognitionSpanConfig = {
   label: string;
   windowSeconds: number;
   overlapSeconds: number;
-}> = {
+};
+
+export const RECOGNITION_SPANS: Record<RecognitionSpan, RecognitionSpanConfig> = {
   fast: { label: '高速（4秒）', windowSeconds: 4, overlapSeconds: 1 },
   standard: { label: '標準（6秒）', windowSeconds: 6, overlapSeconds: 2 },
   accurate: { label: '高精度（10秒）', windowSeconds: 10, overlapSeconds: 2 },
@@ -67,8 +73,6 @@ const SpeechRecognitionComponent = () => {
     isMicrophoneAvailable
   } = useSpeechRecognition();
   
-  const displayRef = useRef<HTMLDivElement | null>(null);
-
   const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>('web-speech');
   const [recognitionSpan, setRecognitionSpan] = useState<RecognitionSpan>('standard');
   const [reazonTranscript, setReazonTranscript] = useState('');
@@ -121,14 +125,13 @@ const SpeechRecognitionComponent = () => {
   const recognitionSpanConfig = RECOGNITION_SPANS[recognitionSpan];
 
   useEffect(() => {
-    displayRef.current?.scrollTo(0, displayRef.current.scrollHeight);
-  }, [displayedTranscript]);
-
-  useEffect(() => {
     if (recognitionMode !== 'web-speech') return;
     const previous = previousWebTranscriptRef.current;
     if (!transcript) {
       previousWebTranscriptRef.current = '';
+      // This mirrors an external recognition source, so resetting its derived
+      // highlight in the subscription effect is intentional.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setWebHighlightedTranscript('');
       return;
     }
@@ -233,7 +236,10 @@ const SpeechRecognitionComponent = () => {
       if (reazonWorkerRef.current === worker) reazonWorkerRef.current = null;
     });
 
-    const modelBaseUrl = new URL(`${process.env.PUBLIC_URL}/models/reazonspeech/`, window.location.origin).toString();
+    const modelBaseUrl = new URL(
+      `${import.meta.env.BASE_URL}models/reazonspeech/`,
+      window.location.origin,
+    ).toString();
     worker.postMessage({ type: 'initialize', baseUrl: modelBaseUrl });
     return initialization;
   }, [addDiagnosticLog, flushReazonResults, reazonModelState]);
@@ -246,10 +252,6 @@ const SpeechRecognitionComponent = () => {
     addDiagnosticLog('decode', `チャンク ${id + 1}（${(samples.length / SAMPLE_RATE).toFixed(1)}秒）`);
     reazonWorkerRef.current.postMessage({ type: 'transcribe', id, samples }, [samples.buffer]);
   }, [addDiagnosticLog]);
-
-  const handleChange = (event: { target: { value: React.SetStateAction<string>; }; }) => {
-    setSelectedLanguage(event.target.value);
-  };
 
   const stopVolumeMeter = useCallback(() => {
     if (meterAnimationFrameRef.current !== null) {
@@ -590,8 +592,8 @@ const SpeechRecognitionComponent = () => {
     }
   };
 
-  const changeRecognitionMode = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    setRecognitionMode(event.target.value as RecognitionMode);
+  const changeRecognitionMode = (mode: RecognitionMode) => {
+    setRecognitionMode(mode);
     setSelectedLanguage('ja-JP');
     setDiagnosticStatus({ tone: 'idle', message: '開始すると音声認識の状態を診断します。' });
     setDiagnosticFinding(null);
@@ -604,168 +606,21 @@ const SpeechRecognitionComponent = () => {
     : ['入力音通知', '発話判定', '認識結果'];
 
   return (
-    <div className="speech-recognition">
-      🎙️：{isActive ? '🔈' : '🔇'}
-      <button aria-label="音声認識を開始" onClick={startClick} disabled={isActive || webSpeechUnavailable || microphoneUnavailable}>▶️</button>
-      <button aria-label="音声認識を停止" onClick={stopClick} disabled={!isActive}>■</button>
-      <button aria-label="認識結果を消去" onClick={clearTranscript}>🗑️</button>
-      <select aria-label="認識言語" value={selectedLanguage} onChange={handleChange} disabled={isActive || recognitionMode === 'reazon-speech'}>
-        <option value="">select language.</option>
-        <option value="en-US">en</option>
-        <option value="ja-JP">ja</option>
-      </select>
-      <label className="recognition-mode">
-        認識方式
-        <select aria-label="認識方式" value={recognitionMode} onChange={changeRecognitionMode} disabled={isActive}>
-          <option value="web-speech">Web Speech（従来）</option>
-          <option value="reazon-speech">ReazonSpeech（ローカル）</option>
-        </select>
-      </label>
-      {recognitionMode === 'reazon-speech' && (
-        <>
-          <section className="reazon-settings" aria-label="ReazonSpeech設定">
-            <label>
-              認識スパン
-              <select
-                aria-label="認識スパン"
-                value={recognitionSpan}
-                onChange={(event) => setRecognitionSpan(event.target.value as RecognitionSpan)}
-                disabled={isActive}
-              >
-                {Object.entries(RECOGNITION_SPANS).map(([value, config]) => (
-                  <option key={value} value={value}>{config.label}</option>
-                ))}
-              </select>
-            </label>
-            <p>
-              {recognitionSpanConfig.windowSeconds}秒の音声を、約
-              {recognitionSpanConfig.windowSeconds - recognitionSpanConfig.overlapSeconds}秒間隔で字幕にします。
-            </p>
-          </section>
-          <section className="model-status" aria-label="ローカルモデルの状態">
-            <div><span>日本語モデル</span><output>{reazonModelState === 'ready' ? '準備完了' : reazonModelState === 'loading' ? `${Math.round(reazonProgress)}%` : reazonModelState === 'error' ? '読込失敗' : '初回約180MB'}</output></div>
-            <progress max={100} value={reazonProgress} />
-            <p>初回だけモデルを取得します。認識時の音声は端末外へ送信しません。</p>
-          </section>
-        </>
-      )}
-      {webSpeechUnavailable && <p className="volume-meter-error">このブラウザはWeb Speech APIに対応していません。</p>}
-      {microphoneUnavailable && <p className="volume-meter-error">マイクの使用を許可してください。</p>}
-      <section className="volume-meter" aria-label="マイク入力レベル">
-        <div className="volume-meter-header">
-          <span>入力レベル</span>
-          <output>
-            {volumeDb === null
-              ? '--'
-              : `${Math.round(volumeLevel)} / 100 (${volumeDb.toFixed(0)} dBFS)`}
-          </output>
+    <main id="main-content" className="app-shell">
+      <header className="app-header"><div className="brand-mark" aria-hidden="true">H</div><div><p className="eyebrow">Live captions</p><h1>Hear Assist</h1><p>周囲の会話を、読みやすいリアルタイム字幕に。</p></div></header>
+      <div className="workspace">
+        <div className="settings-column">
+          <RecognitionControls active={isActive} mode={recognitionMode} onModeChange={changeRecognitionMode} language={selectedLanguage} onLanguageChange={setSelectedLanguage} span={recognitionSpan} spans={RECOGNITION_SPANS} onSpanChange={setRecognitionSpan} modelState={reazonModelState} modelProgress={reazonProgress} startDisabled={webSpeechUnavailable || microphoneUnavailable} onStart={startClick} onStop={stopClick} onClear={clearTranscript} />
+          {webSpeechUnavailable && <p className="inline-alert" role="alert">このブラウザはWeb Speech APIに対応していません。</p>}
+          {microphoneUnavailable && <p className="inline-alert" role="alert">マイクの使用を許可してください。</p>}
+          <InputMeter level={volumeLevel} db={volumeDb} error={meterError} />
+          <DiagnosticsPanel mode={recognitionMode} status={diagnosticStatus} finding={diagnosticFinding} pendingCount={reazonPendingCount} steps={[heardSound, detectedSpeech, receivedResult]} labels={stepLabels} logs={diagnosticLog} />
+          {isIOS && <button className="button button-link" onClick={() => setShowMicModeGuide(true)}>iPhoneのマイク設定を確認</button>}
         </div>
-        <div
-          className="volume-meter-track"
-          role="meter"
-          aria-label="マイク入力レベル"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(volumeLevel)}
-          aria-valuetext={volumeDb === null ? '計測停止中' : `${volumeDb.toFixed(0)} dBFS`}
-        >
-          <div className="volume-meter-fill" style={{ width: `${volumeLevel}%` }} />
-        </div>
-        <div className="volume-meter-scale" aria-hidden="true">
-          <span>小</span>
-          <span>大</span>
-        </div>
-        {meterError && <p className="volume-meter-error">{meterError}</p>}
-      </section>
-      <section className="recognition-diagnostics" aria-label="音声認識診断">
-        <div className="recognition-diagnostics-header">
-          <span>認識診断</span>
-          <span className={`diagnostic-status diagnostic-status-${diagnosticStatus.tone}`}>
-            {diagnosticStatus.message}
-          </span>
-          {recognitionMode === 'reazon-speech' && reazonPendingCount > 0 && (
-            <span className="diagnostic-pending">認識待ち: {reazonPendingCount}件</span>
-          )}
-        </div>
-        <div className="diagnostic-steps" aria-label="認識処理の進行状況">
-          <span className={heardSound ? 'is-detected' : ''}>
-            <b>1</b> {stepLabels[0]}
-          </span>
-          <span aria-hidden="true">→</span>
-          <span className={detectedSpeech ? 'is-detected' : ''}>
-            <b>2</b> {stepLabels[1]}
-          </span>
-          <span aria-hidden="true">→</span>
-          <span className={receivedResult ? 'is-detected' : ''}>
-            <b>3</b> 認識結果
-          </span>
-        </div>
-        {recognitionMode === 'web-speech' && (
-          <p className="diagnostic-note">iOSでは入力音通知が省略されることがあります。発話判定または認識結果が届けば入力されています。</p>
-        )}
-        {diagnosticFinding && (
-          <p className={`diagnostic-finding diagnostic-status-${diagnosticFinding.tone}`}>
-            <b>直近の判定：</b>{diagnosticFinding.message}
-          </p>
-        )}
-        <details className="diagnostic-log">
-          <summary>イベントログ（直近20件）</summary>
-          {diagnosticLog.length === 0 ? (
-            <p>まだイベントはありません。</p>
-          ) : (
-            <ol aria-label="音声認識イベントログ">
-              {diagnosticLog.map((entry) => (
-                <li key={entry.id}>
-                  <time>{entry.time}</time>
-                  <code>{entry.event}</code>
-                  <span>{entry.detail}</span>
-                </li>
-              ))}
-            </ol>
-          )}
-        </details>
-      </section>
-      {isIOS && (
-        <button className="mic-mode-help" onClick={() => setShowMicModeGuide(true)}>
-          iPhoneマイク設定
-        </button>
-      )}
-      {showMicModeGuide && (
-        <aside className="mic-mode-guide" role="dialog" aria-labelledby="mic-mode-guide-title">
-          <button
-            className="mic-mode-guide-close"
-            aria-label="マイク設定ガイドを閉じる"
-            onClick={() => setShowMicModeGuide(false)}
-          >
-            ×
-          </button>
-          <h2 id="mic-mode-guide-title">周囲の声を拾う設定</h2>
-          <p>音声認識を動かしたまま、次の順に設定してください。</p>
-          <ol>
-            <li>画面右上から下へスワイプして、コントロールセンターを開く</li>
-            <li>上部のSafariまたはHear Assistのコントロールを開く</li>
-            <li>「マイクモード」から「ワイドスペクトル」を選ぶ</li>
-          </ol>
-          <p className="mic-mode-guide-note">
-            ワイドスペクトルが表示されない場合は「標準」を選んでください。
-          </p>
-          <a
-            href="https://support.apple.com/ja-jp/101993"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Appleの設定方法を見る
-          </a>
-        </aside>
-      )}
-      <div ref={displayRef}>
-        <AutoScrollingText
-          text={displayedTranscript}
-          highlightedText={displayedHighlight}
-          listening={isActive}
-        />
+        <div className="subtitle-column"><AutoScrollingText text={displayedTranscript} highlightedText={displayedHighlight} listening={isActive} /></div>
       </div>
-    </div>
+      <Activity mode={showMicModeGuide ? 'visible' : 'hidden'}><MicModeDialog onClose={() => setShowMicModeGuide(false)} /></Activity>
+    </main>
   );
 };
 export default SpeechRecognitionComponent;

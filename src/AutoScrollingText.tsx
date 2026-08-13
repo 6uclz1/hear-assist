@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import './AutoScrollingText.css';
 
 type AutoScrollingTextProps = {
@@ -32,8 +32,12 @@ const AutoScrollingText: React.FC<AutoScrollingTextProps> = ({
     [highlightedText, text],
   );
 
-  useEffect(() => {
+  const scrollToLatest = useEffectEvent(() => {
     displayRef.current?.scrollTo({ top: displayRef.current.scrollHeight, behavior: 'smooth' });
+  });
+
+  useEffect(() => {
+    scrollToLatest();
   }, [text]);
 
   useEffect(() => {

@@ -29,7 +29,10 @@ jobs:
         run: npm ci
 
       - name: Test
-        run: npm test -- --watchAll=false --runInBand
+        run: npm test
+
+      - name: Lint
+        run: npm run lint
 
       - name: Build
         run: npm run build
@@ -46,17 +49,17 @@ jobs:
             "$model_name/encoder-epoch-99-avg-1.int8.onnx" \
             "$model_name/decoder-epoch-99-avg-1.onnx" \
             "$model_name/joiner-epoch-99-avg-1.int8.onnx"
-          mkdir -p build/models/reazonspeech
-          cp "$model_dir/tokens.txt" build/models/reazonspeech/
-          cp "$model_dir/decoder-epoch-99-avg-1.onnx" build/models/reazonspeech/
-          cp "$model_dir/joiner-epoch-99-avg-1.int8.onnx" build/models/reazonspeech/
+          mkdir -p dist/models/reazonspeech
+          cp "$model_dir/tokens.txt" dist/models/reazonspeech/
+          cp "$model_dir/decoder-epoch-99-avg-1.onnx" dist/models/reazonspeech/
+          cp "$model_dir/joiner-epoch-99-avg-1.int8.onnx" dist/models/reazonspeech/
           split --bytes=75MiB --numeric-suffixes=0 --suffix-length=2 \
             "$model_dir/encoder-epoch-99-avg-1.int8.onnx" \
-            build/models/reazonspeech/encoder-epoch-99-avg-1.int8.onnx.part-
+            dist/models/reazonspeech/encoder-epoch-99-avg-1.int8.onnx.part-
 
       - name: Deploy
         if: github.event_name == 'push'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./build
+          publish_dir: ./dist
