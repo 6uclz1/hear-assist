@@ -18,3 +18,64 @@ button {
   padding: 8px;
   margin: 4px;
 }
+
+.mic-mode-help {
+  background: transparent;
+  border: 1px solid #4676d7;
+  color: #315eae;
+}
+
+.mic-mode-guide {
+  position: relative;
+  box-sizing: border-box;
+  max-width: 560px;
+  margin: 16px auto;
+  padding: 20px 24px;
+  border: 1px solid #cbd8ef;
+  border-radius: 14px;
+  background: #f5f8ff;
+  color: #17233b;
+  text-align: left;
+  line-height: 1.6;
+}
+
+.mic-mode-guide h2 {
+  margin: 0 32px 8px 0;
+  font-size: 1.2rem;
+}
+
+.mic-mode-guide p {
+  margin: 8px 0;
+}
+
+.mic-mode-guide ol {
+  margin: 8px 0;
+  padding-left: 1.5rem;
+}
+
+.mic-mode-guide-note {
+  color: #53627a;
+  font-size: 0.9rem;
+}
+
+.mic-mode-guide-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-width: 36px;
+  background: transparent;
+  color: #53627a;
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.mic-mode-guide a {
+  color: #315eae;
+}
+
+@media (max-width: 600px) {
+  .mic-mode-guide {
+    margin: 12px;
+    padding: 18px;
+  }
+}
