@@ -1,7 +1,7 @@
 {
   "files": {
-    "main.css": "/hear-assist/static/css/main.d0dfdef2.css",
-    "main.js": "/hear-assist/static/js/main.ead09b6e.js",
+    "main.css": "/hear-assist/static/css/main.923bffd2.css",
+    "main.js": "/hear-assist/static/js/main.47028aae.js",
     "static/js/482.d5f32b67.chunk.js": "/hear-assist/static/js/482.d5f32b67.chunk.js",
     "static/js/787.49e25592.chunk.js": "/hear-assist/static/js/787.49e25592.chunk.js",
     "static/js/494.baab3994.chunk.js": "/hear-assist/static/js/494.baab3994.chunk.js",
@@ -11,15 +11,15 @@
     "service-worker.js": "/hear-assist/service-worker.js",
     "static/media/index.js": "/hear-assist/static/media/index.9eeeb3a7c6cca99f232b.js",
     "index.html": "/hear-assist/index.html",
-    "main.d0dfdef2.css.map": "/hear-assist/static/css/main.d0dfdef2.css.map",
-    "main.ead09b6e.js.map": "/hear-assist/static/js/main.ead09b6e.js.map",
+    "main.923bffd2.css.map": "/hear-assist/static/css/main.923bffd2.css.map",
+    "main.47028aae.js.map": "/hear-assist/static/js/main.47028aae.js.map",
     "482.d5f32b67.chunk.js.map": "/hear-assist/static/js/482.d5f32b67.chunk.js.map",
     "787.49e25592.chunk.js.map": "/hear-assist/static/js/787.49e25592.chunk.js.map",
     "494.baab3994.chunk.js.map": "/hear-assist/static/js/494.baab3994.chunk.js.map",
     "782.f19ced15.chunk.js.map": "/hear-assist/static/js/782.f19ced15.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.d0dfdef2.css",
-    "static/js/main.ead09b6e.js"
+    "static/css/main.923bffd2.css",
+    "static/js/main.47028aae.js"
   ]
 }
