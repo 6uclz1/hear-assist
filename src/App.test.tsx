@@ -53,8 +53,25 @@ test('keeps local ReazonSpeech available alongside Web Speech', () => {
   });
 
   expect(screen.getByRole('combobox', { name: '認識方式' })).toHaveValue('reazon-speech');
+  expect(screen.getByRole('combobox', { name: '認識スパン' })).toHaveValue('standard');
+  expect(screen.getByRole('combobox', { name: '認識スパン' })).toHaveTextContent('高速（4秒）');
+  expect(screen.getByRole('combobox', { name: '認識スパン' })).toHaveTextContent('高精度（10秒）');
+  expect(screen.getByLabelText('ReazonSpeech設定')).toHaveTextContent('6秒の音声を、約4秒間隔');
   expect(screen.getByLabelText('ローカルモデルの状態')).toHaveTextContent('初回約180MB');
   expect(screen.getByRole('combobox', { name: '認識言語' })).toBeDisabled();
+});
+
+test('changes the local recognition span', () => {
+  render(<App />);
+  fireEvent.change(screen.getByRole('combobox', { name: '認識方式' }), {
+    target: { value: 'reazon-speech' },
+  });
+  fireEvent.change(screen.getByRole('combobox', { name: '認識スパン' }), {
+    target: { value: 'fast' },
+  });
+
+  expect(screen.getByRole('combobox', { name: '認識スパン' })).toHaveValue('fast');
+  expect(screen.getByLabelText('ReazonSpeech設定')).toHaveTextContent('4秒の音声を、約3秒間隔');
 });
 
 test('diagnoses sound that is not classified as speech', () => {
