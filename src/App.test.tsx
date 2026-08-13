@@ -28,6 +28,10 @@ test('renders speech recognition controls with Japanese selected', async () => {
   render(<App />);
   expect(screen.getByRole('button', { name: '音声認識を開始' })).toBeInTheDocument();
   expect(screen.getByRole('combobox', { name: '認識言語' })).toHaveValue('ja-JP');
+  expect(screen.getByRole('meter', { name: 'マイク入力レベル' })).toHaveAttribute(
+    'aria-valuetext',
+    '計測停止中',
+  );
 
   fireEvent.click(screen.getByRole('button', { name: '音声認識を開始' }));
   expect(await screen.findByRole('dialog')).toHaveTextContent('ワイドスペクトル');
