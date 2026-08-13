@@ -6,6 +6,10 @@ window.HTMLElement.prototype.scrollTo = jest.fn();
 
 const mockRecognition = new EventTarget();
 
+jest.mock('./createReazonWorker', () => ({
+  createReazonWorker: jest.fn(),
+}));
+
 jest.mock('react-speech-recognition', () => ({
   __esModule: true,
   default: {
@@ -31,6 +35,7 @@ test('renders speech recognition controls with Japanese selected', async () => {
   render(<App />);
   expect(screen.getByRole('button', { name: '音声認識を開始' })).toBeInTheDocument();
   expect(screen.getByRole('combobox', { name: '認識言語' })).toHaveValue('ja-JP');
+  expect(screen.getByRole('combobox', { name: '認識方式' })).toHaveValue('web-speech');
   expect(screen.getByRole('meter', { name: 'マイク入力レベル' })).toHaveAttribute(
     'aria-valuetext',
     '計測停止中',
@@ -38,6 +43,17 @@ test('renders speech recognition controls with Japanese selected', async () => {
 
   fireEvent.click(screen.getByRole('button', { name: '音声認識を開始' }));
   expect(await screen.findByRole('dialog')).toHaveTextContent('ワイドスペクトル');
+});
+
+test('keeps local ReazonSpeech available alongside Web Speech', () => {
+  render(<App />);
+  fireEvent.change(screen.getByRole('combobox', { name: '認識方式' }), {
+    target: { value: 'reazon-speech' },
+  });
+
+  expect(screen.getByRole('combobox', { name: '認識方式' })).toHaveValue('reazon-speech');
+  expect(screen.getByLabelText('ローカルモデルの状態')).toHaveTextContent('初回約180MB');
+  expect(screen.getByRole('combobox', { name: '認識言語' })).toBeDisabled();
 });
 
 test('diagnoses sound that is not classified as speech', () => {
