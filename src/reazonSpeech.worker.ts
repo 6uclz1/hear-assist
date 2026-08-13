@@ -5,7 +5,8 @@ import { loadVirtualData } from '@sherpaw/preloader';
 
 type WorkerRequest =
   | { type: 'initialize'; baseUrl: string }
-  | { type: 'transcribe'; id: number; samples: Float32Array }
+  | { type: 'transcribe'; session: number; id: number; samples: Float32Array }
+  | { type: 'reset'; session: number }
   | { type: 'dispose' };
 
 type ModelFile = { sources: string[]; target: string; size: number };
@@ -25,6 +26,10 @@ const MODEL_FILES: ModelFile[] = [
 ];
 
 let recognizer: OfflineRecognizer | null = null;
+let currentSession = 0;
+let processing = false;
+const pending: Extract<WorkerRequest, { type: 'transcribe' }>[] = [];
+const MAX_QUEUED_CHUNKS = 2;
 const workerScope = globalThis as unknown as DedicatedWorkerGlobalScope;
 
 const send = (message: Record<string, unknown>) => workerScope.postMessage(message);
@@ -106,31 +111,64 @@ const initialize = async (baseUrl: string) => {
   send({ type: 'ready' });
 };
 
+const transcribe = (request: Extract<WorkerRequest, { type: 'transcribe' }>) => {
+  if (!recognizer) throw new Error('ReazonSpeechモデルが未初期化です。');
+  const stream = recognizer.createStream();
+  try {
+    stream.acceptWaveform(16_000, request.samples);
+    recognizer.decode(stream);
+    const result = recognizer.getResult(stream) as { text?: string };
+    if (request.session === currentSession) send({ type: 'result', session: request.session, id: request.id, text: result.text?.trim() || '' });
+  } finally {
+    stream.free();
+  }
+};
+
+const processQueue = () => {
+  if (processing) return;
+  processing = true;
+  try {
+    while (pending.length > 0) {
+      const request = pending.shift();
+      if (!request || request.session !== currentSession) continue;
+      try {
+        transcribe(request);
+      } catch (error) {
+        send({ type: 'error', session: request.session, id: request.id, message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  } finally {
+    processing = false;
+  }
+};
+
 workerScope.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const request = event.data;
   try {
-    if (request.type === 'initialize') {
-      await initialize(request.baseUrl.replace(/\/$/, ''));
+    if (request.type === 'initialize') return await initialize(request.baseUrl.replace(/\/$/, ''));
+    if (request.type === 'reset') {
+      currentSession = request.session;
+      pending.splice(0).forEach((item) => send({ type: 'dropped', session: item.session, id: item.id }));
       return;
     }
     if (request.type === 'dispose') {
+      pending.length = 0;
       recognizer?.free();
       recognizer = null;
       return;
     }
-    if (!recognizer) throw new Error('ReazonSpeechモデルが未初期化です。');
-
-    const stream = recognizer.createStream();
-    try {
-      stream.acceptWaveform(16_000, request.samples);
-      recognizer.decode(stream);
-      const result = recognizer.getResult(stream) as { text?: string };
-      send({ type: 'result', id: request.id, text: result.text?.trim() || '' });
-    } finally {
-      stream.free();
+    if (request.session !== currentSession) {
+      currentSession = request.session;
+      pending.splice(0).forEach((item) => send({ type: 'dropped', session: item.session, id: item.id }));
     }
+    if (pending.length >= MAX_QUEUED_CHUNKS) {
+      const dropped = pending.shift();
+      if (dropped) send({ type: 'dropped', session: dropped.session, id: dropped.id });
+    }
+    pending.push(request);
+    processQueue();
   } catch (error) {
-    send({ type: 'error', id: request.type === 'transcribe' ? request.id : undefined, message: error instanceof Error ? error.message : String(error) });
+    send({ type: 'error', session: request.type === 'transcribe' ? request.session : undefined, id: request.type === 'transcribe' ? request.id : undefined, message: error instanceof Error ? error.message : String(error) });
   }
 });
 
