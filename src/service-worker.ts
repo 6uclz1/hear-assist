@@ -12,7 +12,7 @@ import { clientsClaim } from 'workbox-core';
 import { ExpirationPlugin } from 'workbox-expiration';
 import { precacheAndRoute, createHandlerBoundToURL } from 'workbox-precaching';
 import { registerRoute } from 'workbox-routing';
-import { StaleWhileRevalidate } from 'workbox-strategies';
+import { CacheFirst, StaleWhileRevalidate } from 'workbox-strategies';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -51,6 +51,17 @@ registerRoute(
     return true;
   },
   createHandlerBoundToURL(process.env.PUBLIC_URL + '/index.html')
+);
+
+// ReazonSpeech is loaded only when selected. Keep its large model files and
+// WASM runtime on-device so subsequent sessions do not repeat the download.
+registerRoute(
+  ({ url }) => url.origin === self.location.origin
+    && (url.pathname.includes('/models/reazonspeech/') || url.pathname.endsWith('.wasm')),
+  new CacheFirst({
+    cacheName: 'reazonspeech-v1',
+    plugins: [new ExpirationPlugin({ maxEntries: 8, maxAgeSeconds: 30 * 24 * 60 * 60 })],
+  }),
 );
 
 // An example runtime caching route for requests that aren't handled by the

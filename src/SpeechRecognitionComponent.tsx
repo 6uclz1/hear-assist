@@ -2,7 +2,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognition';
 import './SpeechRecognitionComponent.css'
 import AutoScrollingText from './AutoScrollingText';
+import { createReazonWorker } from './createReazonWorker';
+import { downsampleAudio, joinAudioChunks, keepLastSamples, mergeTranscripts, SAMPLE_RATE } from './reazonSpeech';
 
+type RecognitionMode = 'web-speech' | 'reazon-speech';
 type DiagnosticTone = 'idle' | 'listening' | 'success' | 'warning' | 'error';
 
 type DiagnosticStatus = {
@@ -22,6 +25,18 @@ type RecognitionCycle = {
   detectedSpeech: boolean;
   receivedResult: boolean;
 };
+
+type ReazonWorkerMessage = {
+  type: 'progress' | 'ready' | 'result' | 'error';
+  loaded?: number;
+  total?: number;
+  id?: number;
+  text?: string;
+  message?: string;
+};
+
+const WINDOW_SAMPLES = SAMPLE_RATE * 10;
+const OVERLAP_SAMPLES = SAMPLE_RATE * 2;
 
 const initialRecognitionCycle = (): RecognitionCycle => ({
   heardSound: false,
@@ -43,16 +58,14 @@ const SpeechRecognitionComponent = () => {
     isMicrophoneAvailable
   } = useSpeechRecognition();
   
-  const displayRef :any = useRef(null);
+  const displayRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    const scrollToBottom = () => {
-      displayRef.current?.scrollTo(0, displayRef.current.scrollHeight);
-    };
-
-    scrollToBottom();
-  }, [transcript]);
-
+  const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>('web-speech');
+  const [reazonTranscript, setReazonTranscript] = useState('');
+  const [reazonListening, setReazonListening] = useState(false);
+  const [reazonModelState, setReazonModelState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [reazonProgress, setReazonProgress] = useState(0);
+  const [reazonPendingCount, setReazonPendingCount] = useState(0);
   const [selectedLanguage, setSelectedLanguage] = useState("ja-JP");
   const [showMicModeGuide, setShowMicModeGuide] = useState(false);
   const [volumeLevel, setVolumeLevel] = useState(0);
@@ -74,7 +87,24 @@ const SpeechRecognitionComponent = () => {
   const wasListeningRef = useRef(false);
   const recognitionCycleRef = useRef<RecognitionCycle>(initialRecognitionCycle());
   const diagnosticLogIdRef = useRef(0);
+  const reazonWorkerRef = useRef<Worker | null>(null);
+  const reazonInitializationRef = useRef<Promise<void> | null>(null);
+  const reazonInitializationHandlersRef = useRef<{ resolve: () => void; reject: (error: Error) => void } | null>(null);
+  const reazonProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const reazonSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const reazonSilentGainRef = useRef<GainNode | null>(null);
+  const reazonChunksRef = useRef<Float32Array[]>([]);
+  const reazonSampleCountRef = useRef(0);
+  const reazonRequestIdRef = useRef(0);
+  const nextReazonResultRef = useRef(0);
+  const reazonResultsRef = useRef(new Map<number, string | null>());
   const isIOS = isIOSDevice();
+  const isActive = recognitionMode === 'reazon-speech' ? reazonListening : listening;
+  const displayedTranscript = recognitionMode === 'reazon-speech' ? reazonTranscript : transcript;
+
+  useEffect(() => {
+    displayRef.current?.scrollTo(0, displayRef.current.scrollHeight);
+  }, [displayedTranscript]);
 
   const addDiagnosticLog = useCallback((event: string, detail: string) => {
     diagnosticLogIdRef.current += 1;
@@ -87,6 +117,91 @@ const SpeechRecognitionComponent = () => {
 
     setDiagnosticLog((current) => [entry, ...current].slice(0, 20));
   }, []);
+
+  const flushReazonResults = useCallback(() => {
+    while (reazonResultsRef.current.has(nextReazonResultRef.current)) {
+      const text = reazonResultsRef.current.get(nextReazonResultRef.current);
+      reazonResultsRef.current.delete(nextReazonResultRef.current);
+      nextReazonResultRef.current += 1;
+      if (text) setReazonTranscript((current) => mergeTranscripts(current, text));
+    }
+  }, []);
+
+  const initializeReazonSpeech = useCallback(() => {
+    if (reazonModelState === 'ready' && reazonWorkerRef.current) return Promise.resolve();
+    if (reazonInitializationRef.current) return reazonInitializationRef.current;
+
+    setReazonModelState('loading');
+    setReazonProgress(0);
+    const initialization = new Promise<void>((resolve, reject) => {
+      reazonInitializationHandlersRef.current = { resolve, reject };
+    });
+    reazonInitializationRef.current = initialization;
+
+    const worker = createReazonWorker();
+    reazonWorkerRef.current = worker;
+    worker.addEventListener('message', (event: MessageEvent<ReazonWorkerMessage>) => {
+      const message = event.data;
+      if (message.type === 'progress') {
+        setReazonProgress(message.total ? Math.min(100, (Number(message.loaded) / message.total) * 100) : 0);
+      } else if (message.type === 'ready') {
+        setReazonModelState('ready');
+        setReazonProgress(100);
+        addDiagnosticLog('model', 'ReazonSpeechモデルの準備完了');
+        reazonInitializationHandlersRef.current?.resolve();
+        reazonInitializationHandlersRef.current = null;
+      } else if (message.type === 'result' && message.id !== undefined) {
+        setReazonPendingCount((count) => Math.max(0, count - 1));
+        if (message.id < nextReazonResultRef.current) return;
+        reazonResultsRef.current.set(message.id, message.text?.trim() || null);
+        if (message.text) {
+          setReceivedResult(true);
+          setDiagnosticStatus({ tone: 'success', message: 'ReazonSpeechの認識結果を受信しました。' });
+        }
+        addDiagnosticLog('result', message.text ? `チャンク ${message.id + 1} の認識結果` : '認識結果なし');
+        flushReazonResults();
+      } else if (message.type === 'error') {
+        const error = new Error(message.message || 'ReazonSpeechの初期化に失敗しました。');
+        if (message.id !== undefined) {
+          reazonResultsRef.current.set(message.id, null);
+          setReazonPendingCount((count) => Math.max(0, count - 1));
+          flushReazonResults();
+        } else {
+          setReazonModelState('error');
+          reazonInitializationHandlersRef.current?.reject(error);
+          reazonInitializationHandlersRef.current = null;
+          reazonInitializationRef.current = null;
+          worker.terminate();
+          if (reazonWorkerRef.current === worker) reazonWorkerRef.current = null;
+        }
+        setDiagnosticStatus({ tone: 'error', message: error.message });
+        addDiagnosticLog('error', error.message);
+      }
+    });
+    worker.addEventListener('error', () => {
+      const error = new Error('ReazonSpeechワーカーを起動できませんでした。');
+      setReazonModelState('error');
+      setDiagnosticStatus({ tone: 'error', message: error.message });
+      reazonInitializationHandlersRef.current?.reject(error);
+      reazonInitializationHandlersRef.current = null;
+      reazonInitializationRef.current = null;
+      worker.terminate();
+      if (reazonWorkerRef.current === worker) reazonWorkerRef.current = null;
+    });
+
+    const modelBaseUrl = new URL(`${process.env.PUBLIC_URL}/models/reazonspeech/`, window.location.origin).toString();
+    worker.postMessage({ type: 'initialize', baseUrl: modelBaseUrl });
+    return initialization;
+  }, [addDiagnosticLog, flushReazonResults, reazonModelState]);
+
+  const sendReazonChunk = useCallback((samples: Float32Array) => {
+    if (samples.length < SAMPLE_RATE || !reazonWorkerRef.current) return;
+    const id = reazonRequestIdRef.current;
+    reazonRequestIdRef.current += 1;
+    setReazonPendingCount((count) => count + 1);
+    addDiagnosticLog('decode', `チャンク ${id + 1}（${(samples.length / SAMPLE_RATE).toFixed(1)}秒）`);
+    reazonWorkerRef.current.postMessage({ type: 'transcribe', id, samples }, [samples.buffer]);
+  }, [addDiagnosticLog]);
 
   const handleChange = (event: { target: { value: React.SetStateAction<string>; }; }) => {
     setSelectedLanguage(event.target.value);
@@ -111,11 +226,11 @@ const SpeechRecognitionComponent = () => {
   }, []);
 
   const startVolumeMeter = useCallback(async () => {
-    if (microphoneStreamRef.current) return;
+    if (microphoneStreamRef.current) return microphoneStreamRef.current;
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setMeterError('このブラウザでは入力レベルを取得できません。');
-      return;
+      return null;
     }
 
     try {
@@ -123,7 +238,13 @@ const SpeechRecognitionComponent = () => {
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
 
-      const streamPromise = navigator.mediaDevices.getUserMedia({ audio: true });
+      const streamPromise = navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
       const [, stream] = await Promise.all([audioContext.resume(), streamPromise]);
       const analyser = audioContext.createAnalyser();
       const source = audioContext.createMediaStreamSource(stream);
@@ -158,26 +279,79 @@ const SpeechRecognitionComponent = () => {
       };
 
       meterAnimationFrameRef.current = requestAnimationFrame(updateMeter);
+      return stream;
     } catch {
       stopVolumeMeter();
       setMeterError('マイクの入力レベルを取得できませんでした。');
+      return null;
     }
   }, [stopVolumeMeter]);
+
+  const startReazonCapture = useCallback((stream: MediaStream) => {
+    const audioContext = audioContextRef.current;
+    if (!audioContext) throw new Error('音声処理を開始できませんでした。');
+    const source = audioContext.createMediaStreamSource(stream);
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    const silentGain = audioContext.createGain();
+    silentGain.gain.value = 0;
+
+    reazonChunksRef.current = [];
+    reazonSampleCountRef.current = 0;
+    processor.onaudioprocess = (event) => {
+      const samples = downsampleAudio(event.inputBuffer.getChannelData(0), audioContext.sampleRate);
+      reazonChunksRef.current.push(samples);
+      reazonSampleCountRef.current += samples.length;
+
+      if (reazonSampleCountRef.current >= WINDOW_SAMPLES) {
+        sendReazonChunk(joinAudioChunks(reazonChunksRef.current));
+        reazonChunksRef.current = keepLastSamples(reazonChunksRef.current, OVERLAP_SAMPLES);
+        reazonSampleCountRef.current = reazonChunksRef.current[0]?.length || 0;
+        setDetectedSpeech(true);
+      }
+    };
+
+    source.connect(processor);
+    processor.connect(silentGain);
+    silentGain.connect(audioContext.destination);
+    reazonSourceRef.current = source;
+    reazonProcessorRef.current = processor;
+    reazonSilentGainRef.current = silentGain;
+  }, [sendReazonChunk]);
+
+  const stopReazonCapture = useCallback((flush = true) => {
+    if (flush && reazonSampleCountRef.current >= SAMPLE_RATE) {
+      sendReazonChunk(joinAudioChunks(reazonChunksRef.current));
+    }
+    reazonProcessorRef.current?.disconnect();
+    reazonSourceRef.current?.disconnect();
+    reazonSilentGainRef.current?.disconnect();
+    reazonProcessorRef.current = null;
+    reazonSourceRef.current = null;
+    reazonSilentGainRef.current = null;
+    reazonChunksRef.current = [];
+    reazonSampleCountRef.current = 0;
+    setReazonListening(false);
+    stopVolumeMeter();
+  }, [sendReazonChunk, stopVolumeMeter]);
 
   useEffect(() => {
     if (listening) {
       wasListeningRef.current = true;
-    } else if (wasListeningRef.current) {
+    } else if (wasListeningRef.current && recognitionMode === 'web-speech') {
       wasListeningRef.current = false;
       stopVolumeMeter();
     }
-  }, [listening, stopVolumeMeter]);
+  }, [listening, recognitionMode, stopVolumeMeter]);
 
-  useEffect(() => stopVolumeMeter, [stopVolumeMeter]);
+  useEffect(() => () => {
+    stopReazonCapture(false);
+    reazonWorkerRef.current?.postMessage({ type: 'dispose' });
+    reazonWorkerRef.current?.terminate();
+  }, [stopReazonCapture]);
 
   useEffect(() => {
     const recognition = SpeechRecognition.getRecognition();
-    if (!recognition) return;
+    if (!recognition || recognitionMode !== 'web-speech') return;
 
     const resetCycle = () => {
       recognitionCycleRef.current = initialRecognitionCycle();
@@ -202,7 +376,9 @@ const SpeechRecognitionComponent = () => {
     };
 
     const handleSpeechStart = () => {
+      recognitionCycleRef.current.heardSound = true;
       recognitionCycleRef.current.detectedSpeech = true;
+      setHeardSound(true);
       setDetectedSpeech(true);
       setDiagnosticStatus({
         tone: 'listening',
@@ -212,7 +388,11 @@ const SpeechRecognitionComponent = () => {
     };
 
     const handleResult = () => {
+      recognitionCycleRef.current.heardSound = true;
+      recognitionCycleRef.current.detectedSpeech = true;
       recognitionCycleRef.current.receivedResult = true;
+      setHeardSound(true);
+      setDetectedSpeech(true);
       setReceivedResult(true);
       setDiagnosticStatus({
         tone: 'success',
@@ -290,15 +470,7 @@ const SpeechRecognitionComponent = () => {
       recognition.removeEventListener('error', handleError);
       recognition.removeEventListener('end', handleEnd);
     };
-  }, [addDiagnosticLog]);
-  
-  if (!browserSupportsSpeechRecognition) {
-    return <span>Browser doesn't support speech recognition.</span>;
-  }
-
-  if (!isMicrophoneAvailable) {
-    return <span>Please enable microphone permission.</span>;
-  }
+  }, [addDiagnosticLog, recognitionMode]);
 
   const startClick = async () => {
     if (!selectedLanguage) return;
@@ -310,12 +482,33 @@ const SpeechRecognitionComponent = () => {
       message: '音声認識を起動しています。',
     });
 
-    const recognitionStart = SpeechRecognition.startListening({
-      continuous: true,
-      language: selectedLanguage,
-    });
-    void startVolumeMeter();
-    await recognitionStart;
+    if (recognitionMode === 'web-speech') {
+      const recognitionStart = SpeechRecognition.startListening({
+        continuous: true,
+        language: selectedLanguage,
+      });
+      void startVolumeMeter();
+      await recognitionStart;
+    } else {
+      setDiagnosticStatus({ tone: 'listening', message: 'ローカルモデルを準備しています。' });
+      try {
+        const [stream] = await Promise.all([startVolumeMeter(), initializeReazonSpeech()]);
+        if (!stream) return;
+
+        reazonRequestIdRef.current = 0;
+        nextReazonResultRef.current = 0;
+        reazonResultsRef.current.clear();
+        setReazonPendingCount(0);
+        startReazonCapture(stream);
+        setReazonListening(true);
+        setHeardSound(true);
+        setDiagnosticStatus({ tone: 'listening', message: '10秒ごとに端末内で音声を認識します。' });
+        addDiagnosticLog('start', 'ローカルReazonSpeechを開始');
+      } catch {
+        stopVolumeMeter();
+        return;
+      }
+    }
 
     if (isIOS) {
       setShowMicModeGuide(true);
@@ -323,21 +516,64 @@ const SpeechRecognitionComponent = () => {
   };
 
   const stopClick = () => {
-    SpeechRecognition.stopListening();
-    stopVolumeMeter();
+    if (recognitionMode === 'reazon-speech') {
+      stopReazonCapture();
+      addDiagnosticLog('stop', 'ローカルReazonSpeechを停止');
+    } else {
+      SpeechRecognition.stopListening();
+      stopVolumeMeter();
+    }
   };
+
+  const clearTranscript = () => {
+    if (recognitionMode === 'reazon-speech') {
+      nextReazonResultRef.current = reazonRequestIdRef.current;
+      reazonResultsRef.current.clear();
+      setReazonTranscript('');
+    }
+    else resetTranscript();
+  };
+
+  const changeRecognitionMode = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    setRecognitionMode(event.target.value as RecognitionMode);
+    setSelectedLanguage('ja-JP');
+    setDiagnosticStatus({ tone: 'idle', message: '開始すると音声認識の状態を診断します。' });
+    setDiagnosticFinding(null);
+  };
+
+  const webSpeechUnavailable = recognitionMode === 'web-speech' && !browserSupportsSpeechRecognition;
+  const microphoneUnavailable = recognitionMode === 'web-speech' && !isMicrophoneAvailable;
+  const stepLabels = recognitionMode === 'reazon-speech'
+    ? ['マイク入力', '固定長録音', '認識結果']
+    : ['入力音通知', '発話判定', '認識結果'];
 
   return (
     <div className="speech-recognition">
-      🎙️：{listening ? '🔈' : '🔇'} 
-      <button aria-label="音声認識を開始" onClick={startClick}>▶️</button>
-      <button aria-label="音声認識を停止" onClick={stopClick}>■</button>
-      <button aria-label="認識結果を消去" onClick={resetTranscript}>🗑️</button>
-      <select aria-label="認識言語" value={selectedLanguage} onChange={handleChange}>
+      🎙️：{isActive ? '🔈' : '🔇'}
+      <button aria-label="音声認識を開始" onClick={startClick} disabled={isActive || webSpeechUnavailable || microphoneUnavailable}>▶️</button>
+      <button aria-label="音声認識を停止" onClick={stopClick} disabled={!isActive}>■</button>
+      <button aria-label="認識結果を消去" onClick={clearTranscript}>🗑️</button>
+      <select aria-label="認識言語" value={selectedLanguage} onChange={handleChange} disabled={isActive || recognitionMode === 'reazon-speech'}>
         <option value="">select language.</option>
         <option value="en-US">en</option>
         <option value="ja-JP">ja</option>
       </select>
+      <label className="recognition-mode">
+        認識方式
+        <select aria-label="認識方式" value={recognitionMode} onChange={changeRecognitionMode} disabled={isActive}>
+          <option value="web-speech">Web Speech（従来）</option>
+          <option value="reazon-speech">ReazonSpeech（ローカル）</option>
+        </select>
+      </label>
+      {recognitionMode === 'reazon-speech' && (
+        <section className="model-status" aria-label="ローカルモデルの状態">
+          <div><span>日本語モデル</span><output>{reazonModelState === 'ready' ? '準備完了' : reazonModelState === 'loading' ? `${Math.round(reazonProgress)}%` : reazonModelState === 'error' ? '読込失敗' : '初回約180MB'}</output></div>
+          <progress max={100} value={reazonProgress} />
+          <p>初回だけモデルを取得します。認識時の音声は端末外へ送信しません。</p>
+        </section>
+      )}
+      {webSpeechUnavailable && <p className="volume-meter-error">このブラウザはWeb Speech APIに対応していません。</p>}
+      {microphoneUnavailable && <p className="volume-meter-error">マイクの使用を許可してください。</p>}
       <section className="volume-meter" aria-label="マイク入力レベル">
         <div className="volume-meter-header">
           <span>入力レベル</span>
@@ -370,20 +606,26 @@ const SpeechRecognitionComponent = () => {
           <span className={`diagnostic-status diagnostic-status-${diagnosticStatus.tone}`}>
             {diagnosticStatus.message}
           </span>
+          {recognitionMode === 'reazon-speech' && reazonPendingCount > 0 && (
+            <span className="diagnostic-pending">認識待ち: {reazonPendingCount}件</span>
+          )}
         </div>
         <div className="diagnostic-steps" aria-label="認識処理の進行状況">
           <span className={heardSound ? 'is-detected' : ''}>
-            <b>1</b> 入力音
+            <b>1</b> {stepLabels[0]}
           </span>
           <span aria-hidden="true">→</span>
           <span className={detectedSpeech ? 'is-detected' : ''}>
-            <b>2</b> 発話判定
+            <b>2</b> {stepLabels[1]}
           </span>
           <span aria-hidden="true">→</span>
           <span className={receivedResult ? 'is-detected' : ''}>
             <b>3</b> 認識結果
           </span>
         </div>
+        {recognitionMode === 'web-speech' && (
+          <p className="diagnostic-note">iOSでは入力音通知が省略されることがあります。発話判定または認識結果が届けば入力されています。</p>
+        )}
         {diagnosticFinding && (
           <p className={`diagnostic-finding diagnostic-status-${diagnosticFinding.tone}`}>
             <b>直近の判定：</b>{diagnosticFinding.message}
@@ -439,8 +681,8 @@ const SpeechRecognitionComponent = () => {
           </a>
         </aside>
       )}
-      <div>
-        <AutoScrollingText text={transcript} />
+      <div ref={displayRef}>
+        <AutoScrollingText text={displayedTranscript} />
       </div>
     </div>
   );

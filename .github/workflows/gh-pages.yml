@@ -28,8 +28,31 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Test
+        run: npm test -- --watchAll=false --runInBand
+
       - name: Build
         run: npm run build
+
+      - name: Download ReazonSpeech model
+        if: github.event_name == 'push'
+        run: |
+          curl --fail --location --retry 3 --output /tmp/reazonspeech.tar.bz2 \
+            https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01.tar.bz2
+          model_name=sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01
+          model_dir=/tmp/$model_name
+          tar --no-same-owner -xjf /tmp/reazonspeech.tar.bz2 -C /tmp \
+            "$model_name/tokens.txt" \
+            "$model_name/encoder-epoch-99-avg-1.int8.onnx" \
+            "$model_name/decoder-epoch-99-avg-1.onnx" \
+            "$model_name/joiner-epoch-99-avg-1.int8.onnx"
+          mkdir -p build/models/reazonspeech
+          cp "$model_dir/tokens.txt" build/models/reazonspeech/
+          cp "$model_dir/decoder-epoch-99-avg-1.onnx" build/models/reazonspeech/
+          cp "$model_dir/joiner-epoch-99-avg-1.int8.onnx" build/models/reazonspeech/
+          split --bytes=75MiB --numeric-suffixes=0 --suffix-length=2 \
+            "$model_dir/encoder-epoch-99-avg-1.int8.onnx" \
+            build/models/reazonspeech/encoder-epoch-99-avg-1.int8.onnx.part-
 
       - name: Deploy
         if: github.event_name == 'push'
