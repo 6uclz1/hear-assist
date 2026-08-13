@@ -19,6 +19,7 @@ jest.mock('react-speech-recognition', () => ({
   },
   useSpeechRecognition: () => ({
     transcript: '',
+    interimTranscript: '',
     listening: false,
     resetTranscript: jest.fn(),
     browserSupportsSpeechRecognition: true,

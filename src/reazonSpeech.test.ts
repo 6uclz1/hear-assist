@@ -1,4 +1,4 @@
-import { downsampleAudio, joinAudioChunks, keepLastSamples, mergeTranscripts } from './reazonSpeech';
+import { downsampleAudio, joinAudioChunks, keepLastSamples, mergeTranscriptChunk, mergeTranscripts } from './reazonSpeech';
 
 test('merges the two-second transcript overlap without duplicating text', () => {
   expect(mergeTranscripts('今日は天気がいいですね', '天気がいいですね散歩しましょう')).toBe(
@@ -8,6 +8,13 @@ test('merges the two-second transcript overlap without duplicating text', () => 
 
 test('keeps unrelated recognition results', () => {
   expect(mergeTranscripts('こんにちは。', '次の話題です')).toBe('こんにちは。次の話題です');
+});
+
+test('returns only the newly appended text for subtitle highlighting', () => {
+  expect(mergeTranscriptChunk('今日は良い天気です', '良い天気です散歩します')).toEqual({
+    transcript: '今日は良い天気です 散歩します',
+    addition: '散歩します',
+  });
 });
 
 test('joins audio chunks and retains the requested tail', () => {
