@@ -22,7 +22,7 @@ type Props = {
   onLineHeightChange: (lineHeight: number) => void;
   modelState: 'idle' | 'loading' | 'ready' | 'error';
   modelProgress: number;
-  meter: { level: number; db: number | null; error: string };
+  meter: { level: number; rms: number | null; db: number | null; error: string };
   diagnostics: {
     status: DiagnosticStatus;
     finding: DiagnosticStatus | null;
