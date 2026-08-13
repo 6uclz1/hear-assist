@@ -1,46 +1,114 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import './AutoScrollingText.css';
 
-const AutoScrollingText: React.FC<{ text: string }> = ({ text }) => {
-  const [displayText, setDisplayText] = useState<string>(text);
+type AutoScrollingTextProps = {
+  text: string;
+  highlightedText?: string;
+  listening?: boolean;
+};
+
+const splitHighlightedSuffix = (text: string, highlightedText: string) => {
+  const highlight = highlightedText.trim();
+  if (!highlight || !text.trimEnd().endsWith(highlight)) return { history: text, highlight: '' };
+
+  const end = text.trimEnd();
+  return {
+    history: end.slice(0, end.length - highlight.length).trimEnd(),
+    highlight,
+  };
+};
+
+const AutoScrollingText: React.FC<AutoScrollingTextProps> = ({
+  text,
+  highlightedText = '',
+  listening = false,
+}) => {
+  const [fontSize, setFontSize] = useState(56);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const displayRef = useRef<HTMLDivElement>(null);
+  const viewerRef = useRef<HTMLElement>(null);
+  const parts = useMemo(
+    () => splitHighlightedSuffix(text, highlightedText),
+    [highlightedText, text],
+  );
 
   useEffect(() => {
-    setDisplayText(text)
+    displayRef.current?.scrollTo({ top: displayRef.current.scrollHeight, behavior: 'smooth' });
   }, [text]);
 
   useEffect(() => {
-    const scrollToBottom = () => {
-      displayRef.current?.scrollTo(0, displayRef.current.scrollHeight);
+    if (!isFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeWithEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsFullscreen(false);
     };
+    document.addEventListener('keydown', closeWithEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', closeWithEscape);
+    };
+  }, [isFullscreen]);
 
-    scrollToBottom();
-  }, [displayText]);
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      if (!document.fullscreenElement) setIsFullscreen(false);
+    };
+    document.addEventListener('fullscreenchange', syncFullscreenState);
+    return () => document.removeEventListener('fullscreenchange', syncFullscreenState);
+  }, []);
 
-  const [fontSize, setFontSize] = useState<number>(16);
-
-  const handleFontSizeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setFontSize(Number(event.target.value));
+  const openFullscreen = async () => {
+    setIsFullscreen(true);
+    try {
+      await viewerRef.current?.requestFullscreen?.();
+    } catch {
+      // The CSS fullscreen presentation remains available on iOS WebKit.
+    }
   };
 
-  const style: React.CSSProperties = {
-    fontSize: `${fontSize*4}px`,
-    fontWeight: "bold",
-    overflowY: "scroll",
-    height: "480px",
+  const closeFullscreen = async () => {
+    setIsFullscreen(false);
+    if (document.fullscreenElement) await document.exitFullscreen().catch(() => undefined);
   };
 
   return (
-    <>
-      <div>
-        🔍<input type="range" min="10" max="30" value={fontSize} onChange={handleFontSizeChange} />
-      </div>
+    <section
+      ref={viewerRef}
+      className={`subtitle-viewer${isFullscreen ? ' is-fullscreen' : ''}`}
+      aria-label="文字起こし表示"
+    >
+      <header className="subtitle-toolbar">
+        <label>
+          <span aria-hidden="true">文字サイズ</span>
+          <input
+            aria-label="字幕の文字サイズ"
+            type="range"
+            min="28"
+            max="96"
+            step="4"
+            value={fontSize}
+            onChange={(event) => setFontSize(Number(event.target.value))}
+          />
+        </label>
+        <span className={`subtitle-listening${listening ? ' is-active' : ''}`}>
+          {listening ? '● 認識中' : '○ 停止中'}
+        </span>
+        <button type="button" onClick={isFullscreen ? closeFullscreen : openFullscreen}>
+          {isFullscreen ? '全面表示を閉じる' : '全面表示'}
+        </button>
+      </header>
       <div
         ref={displayRef}
-        style={style}
+        className="subtitle-scroll"
+        style={{ '--subtitle-font-size': `${fontSize}px` } as React.CSSProperties}
+        aria-live="polite"
       >
-      {displayText}
+        {!text && <span className="subtitle-placeholder">認識した字幕がここに表示されます</span>}
+        {parts.history && <span className="subtitle-history">{parts.history} </span>}
+        {parts.highlight && <mark className="subtitle-highlight">{parts.highlight}</mark>}
       </div>
-    </>
+    </section>
   );
 };
 
