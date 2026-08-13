@@ -7,6 +7,8 @@
 
 The local mode recognizes independent 10-second PCM windows with a 2-second overlap instead of using voice activity detection. This prevents quiet or distant speech from being discarded before recognition. The first use downloads roughly 180 MB for the quantized model and WebAssembly runtime.
 
+The subtitle viewer supports a distraction-free fullscreen presentation, adjustable text size, and highlighting for the latest recognized chunk. Older transcript text remains visible in a quieter color for context.
+
 The model is not committed to the source branch. On pushes to `master`, the Pages workflow downloads the official `sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01` archive and adds the required files to the deployment. The 148 MB encoder is split into sub-100 MB files for GitHub Pages and reassembled in memory by the browser.
 
 The [ReazonSpeech model](https://huggingface.co/reazon-research/reazonspeech-k2-v2), [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx), and the browser wrapper used here are distributed under the Apache License 2.0.

@@ -40,15 +40,15 @@ const sliceAfterNonWhitespace = (value: string, count: number) => {
   return '';
 };
 
-export const mergeTranscripts = (current: string, incoming: string) => {
+export const mergeTranscriptChunk = (current: string, incoming: string) => {
   const previous = current.trim();
   const next = incoming.trim();
-  if (!previous) return next;
-  if (!next) return previous;
+  if (!previous) return { transcript: next, addition: next };
+  if (!next) return { transcript: previous, addition: '' };
 
   const normalizedPrevious = previous.replace(/\s/g, '');
   const normalizedNext = next.replace(/\s/g, '');
-  if (normalizedPrevious.endsWith(normalizedNext)) return previous;
+  if (normalizedPrevious.endsWith(normalizedNext)) return { transcript: previous, addition: '' };
 
   let overlap = 0;
   for (let length = Math.min(normalizedPrevious.length, normalizedNext.length); length >= 4; length -= 1) {
@@ -59,8 +59,15 @@ export const mergeTranscripts = (current: string, incoming: string) => {
   }
 
   const remainder = overlap ? sliceAfterNonWhitespace(next, overlap) : next;
-  if (!remainder) return previous;
-  return `${previous}${/[。！？.!?]$/.test(previous) ? '' : ' '}${remainder}`;
+  if (!remainder) return { transcript: previous, addition: '' };
+  return {
+    transcript: `${previous}${/[。！？.!?]$/.test(previous) ? '' : ' '}${remainder}`,
+    addition: remainder,
+  };
 };
+
+export const mergeTranscripts = (current: string, incoming: string) => (
+  mergeTranscriptChunk(current, incoming).transcript
+);
 
 export { SAMPLE_RATE };

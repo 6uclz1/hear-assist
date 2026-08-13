@@ -3,7 +3,7 @@ import SpeechRecognition, { useSpeechRecognition } from 'react-speech-recognitio
 import './SpeechRecognitionComponent.css'
 import AutoScrollingText from './AutoScrollingText';
 import { createReazonWorker } from './createReazonWorker';
-import { downsampleAudio, joinAudioChunks, keepLastSamples, mergeTranscripts, SAMPLE_RATE } from './reazonSpeech';
+import { downsampleAudio, joinAudioChunks, keepLastSamples, mergeTranscriptChunk, SAMPLE_RATE } from './reazonSpeech';
 
 type RecognitionMode = 'web-speech' | 'reazon-speech';
 type DiagnosticTone = 'idle' | 'listening' | 'success' | 'warning' | 'error';
@@ -52,6 +52,7 @@ const isIOSDevice = () => {
 const SpeechRecognitionComponent = () => {
   const {
     transcript,
+    interimTranscript,
     listening,
     resetTranscript,
     browserSupportsSpeechRecognition,
@@ -62,6 +63,8 @@ const SpeechRecognitionComponent = () => {
 
   const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>('web-speech');
   const [reazonTranscript, setReazonTranscript] = useState('');
+  const [reazonHighlightedTranscript, setReazonHighlightedTranscript] = useState('');
+  const [webHighlightedTranscript, setWebHighlightedTranscript] = useState('');
   const [reazonListening, setReazonListening] = useState(false);
   const [reazonModelState, setReazonModelState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [reazonProgress, setReazonProgress] = useState(0);
@@ -98,13 +101,39 @@ const SpeechRecognitionComponent = () => {
   const reazonRequestIdRef = useRef(0);
   const nextReazonResultRef = useRef(0);
   const reazonResultsRef = useRef(new Map<number, string | null>());
+  const reazonTranscriptRef = useRef('');
+  const previousWebTranscriptRef = useRef('');
   const isIOS = isIOSDevice();
   const isActive = recognitionMode === 'reazon-speech' ? reazonListening : listening;
   const displayedTranscript = recognitionMode === 'reazon-speech' ? reazonTranscript : transcript;
+  const displayedHighlight = recognitionMode === 'reazon-speech'
+    ? reazonHighlightedTranscript
+    : (interimTranscript?.trim() || webHighlightedTranscript);
 
   useEffect(() => {
     displayRef.current?.scrollTo(0, displayRef.current.scrollHeight);
   }, [displayedTranscript]);
+
+  useEffect(() => {
+    if (recognitionMode !== 'web-speech') return;
+    const previous = previousWebTranscriptRef.current;
+    if (!transcript) {
+      previousWebTranscriptRef.current = '';
+      setWebHighlightedTranscript('');
+      return;
+    }
+
+    let commonLength = 0;
+    while (
+      commonLength < previous.length
+      && commonLength < transcript.length
+      && previous[commonLength] === transcript[commonLength]
+    ) commonLength += 1;
+
+    const addition = transcript.slice(commonLength).trim();
+    if (addition) setWebHighlightedTranscript(addition);
+    previousWebTranscriptRef.current = transcript;
+  }, [recognitionMode, transcript]);
 
   const addDiagnosticLog = useCallback((event: string, detail: string) => {
     diagnosticLogIdRef.current += 1;
@@ -123,7 +152,12 @@ const SpeechRecognitionComponent = () => {
       const text = reazonResultsRef.current.get(nextReazonResultRef.current);
       reazonResultsRef.current.delete(nextReazonResultRef.current);
       nextReazonResultRef.current += 1;
-      if (text) setReazonTranscript((current) => mergeTranscripts(current, text));
+      if (text) {
+        const merged = mergeTranscriptChunk(reazonTranscriptRef.current, text);
+        reazonTranscriptRef.current = merged.transcript;
+        setReazonTranscript(merged.transcript);
+        if (merged.addition) setReazonHighlightedTranscript(merged.addition);
+      }
     }
   }, []);
 
@@ -529,9 +563,15 @@ const SpeechRecognitionComponent = () => {
     if (recognitionMode === 'reazon-speech') {
       nextReazonResultRef.current = reazonRequestIdRef.current;
       reazonResultsRef.current.clear();
+      reazonTranscriptRef.current = '';
       setReazonTranscript('');
+      setReazonHighlightedTranscript('');
     }
-    else resetTranscript();
+    else {
+      previousWebTranscriptRef.current = '';
+      setWebHighlightedTranscript('');
+      resetTranscript();
+    }
   };
 
   const changeRecognitionMode = (event: React.ChangeEvent<HTMLSelectElement>) => {
@@ -682,7 +722,11 @@ const SpeechRecognitionComponent = () => {
         </aside>
       )}
       <div ref={displayRef}>
-        <AutoScrollingText text={displayedTranscript} />
+        <AutoScrollingText
+          text={displayedTranscript}
+          highlightedText={displayedHighlight}
+          listening={isActive}
+        />
       </div>
     </div>
   );
