@@ -1,6 +1,6 @@
 import React, { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import type { SubtitleContrast, SubtitleFocus } from './SpeechRecognitionComponent';
-import { CollapseIcon, ExpandIcon, MicrophoneIcon, MinusIcon, PlusIcon, SettingsIcon, StopIcon, TrashIcon } from './components/Icons';
+import { CollapseIcon, ExpandIcon, HearAssistLogo, MicrophoneIcon, MinusIcon, PlusIcon, SettingsIcon, StopIcon, TrashIcon } from './components/Icons';
 import './AutoScrollingText.css';
 
 export type CaptionStatus = {
@@ -88,6 +88,7 @@ const AutoScrollingText: React.FC<Props> = ({
   return (
     <section ref={viewerRef} className={`caption-stage contrast-${contrast}${isFullscreen ? ' is-fullscreen' : ''}`} aria-label="文字起こし表示">
       <header className="caption-statusbar">
+        <div className="brand-lockup"><HearAssistLogo /><span>Hear Assist</span></div>
         <div className={`live-state state-${status.tone}`} role="status" aria-live="polite">
           <span className="state-dot" aria-hidden="true" />
           <span><strong>{status.label}</strong><small>{status.detail}</small></span>

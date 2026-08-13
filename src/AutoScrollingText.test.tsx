@@ -20,6 +20,7 @@ test('opens and closes the fullscreen subtitle presentation', () => {
   render(<AutoScrollingText text="字幕" />);
   const viewer = screen.getByLabelText('文字起こし表示');
 
+  expect(screen.getByText('Hear Assist')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '全面' }));
   expect(viewer).toHaveClass('is-fullscreen');
 
