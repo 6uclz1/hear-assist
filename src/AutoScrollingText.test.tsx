@@ -42,3 +42,19 @@ test('keeps recognition delay and last-caption age visible', () => {
   expect(screen.getByText('8秒前')).toBeInTheDocument();
   expect(screen.getByText('表示中の字幕').closest('.caption-canvas')).toHaveClass('focus-two');
 });
+
+
+test('shows the live RMS input level with an understandable label', () => {
+  render(
+    <AutoScrollingText
+      text=""
+      active
+      inputLevel={{ rms: 0.125, db: -18, level: 70 }}
+    />,
+  );
+
+  expect(screen.getByText('RMS 0.125')).toBeInTheDocument();
+  expect(screen.getByText('-18 dBFS')).toBeInTheDocument();
+  expect(screen.getByText('適正')).toBeInTheDocument();
+  expect(screen.getByRole('meter', { name: 'RMS入力レベル' })).toHaveAttribute('aria-valuetext', '適正、RMS 0.125、-18 dBFS');
+});
