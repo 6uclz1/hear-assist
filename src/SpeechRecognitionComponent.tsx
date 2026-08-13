@@ -6,6 +6,7 @@ import { createReazonWorker } from './createReazonWorker';
 import { downsampleAudio, joinAudioChunks, keepLastSamples, mergeTranscriptChunk, SAMPLE_RATE } from './reazonSpeech';
 
 type RecognitionMode = 'web-speech' | 'reazon-speech';
+type RecognitionSpan = 'fast' | 'standard' | 'accurate';
 type DiagnosticTone = 'idle' | 'listening' | 'success' | 'warning' | 'error';
 
 type DiagnosticStatus = {
@@ -35,8 +36,15 @@ type ReazonWorkerMessage = {
   message?: string;
 };
 
-const WINDOW_SAMPLES = SAMPLE_RATE * 10;
-const OVERLAP_SAMPLES = SAMPLE_RATE * 2;
+const RECOGNITION_SPANS: Record<RecognitionSpan, {
+  label: string;
+  windowSeconds: number;
+  overlapSeconds: number;
+}> = {
+  fast: { label: '高速（4秒）', windowSeconds: 4, overlapSeconds: 1 },
+  standard: { label: '標準（6秒）', windowSeconds: 6, overlapSeconds: 2 },
+  accurate: { label: '高精度（10秒）', windowSeconds: 10, overlapSeconds: 2 },
+};
 
 const initialRecognitionCycle = (): RecognitionCycle => ({
   heardSound: false,
@@ -62,6 +70,7 @@ const SpeechRecognitionComponent = () => {
   const displayRef = useRef<HTMLDivElement | null>(null);
 
   const [recognitionMode, setRecognitionMode] = useState<RecognitionMode>('web-speech');
+  const [recognitionSpan, setRecognitionSpan] = useState<RecognitionSpan>('standard');
   const [reazonTranscript, setReazonTranscript] = useState('');
   const [reazonHighlightedTranscript, setReazonHighlightedTranscript] = useState('');
   const [webHighlightedTranscript, setWebHighlightedTranscript] = useState('');
@@ -109,6 +118,7 @@ const SpeechRecognitionComponent = () => {
   const displayedHighlight = recognitionMode === 'reazon-speech'
     ? reazonHighlightedTranscript
     : (interimTranscript?.trim() || webHighlightedTranscript);
+  const recognitionSpanConfig = RECOGNITION_SPANS[recognitionSpan];
 
   useEffect(() => {
     displayRef.current?.scrollTo(0, displayRef.current.scrollHeight);
@@ -331,14 +341,16 @@ const SpeechRecognitionComponent = () => {
 
     reazonChunksRef.current = [];
     reazonSampleCountRef.current = 0;
+    const windowSamples = SAMPLE_RATE * recognitionSpanConfig.windowSeconds;
+    const overlapSamples = SAMPLE_RATE * recognitionSpanConfig.overlapSeconds;
     processor.onaudioprocess = (event) => {
       const samples = downsampleAudio(event.inputBuffer.getChannelData(0), audioContext.sampleRate);
       reazonChunksRef.current.push(samples);
       reazonSampleCountRef.current += samples.length;
 
-      if (reazonSampleCountRef.current >= WINDOW_SAMPLES) {
+      if (reazonSampleCountRef.current >= windowSamples) {
         sendReazonChunk(joinAudioChunks(reazonChunksRef.current));
-        reazonChunksRef.current = keepLastSamples(reazonChunksRef.current, OVERLAP_SAMPLES);
+        reazonChunksRef.current = keepLastSamples(reazonChunksRef.current, overlapSamples);
         reazonSampleCountRef.current = reazonChunksRef.current[0]?.length || 0;
         setDetectedSpeech(true);
       }
@@ -350,7 +362,7 @@ const SpeechRecognitionComponent = () => {
     reazonSourceRef.current = source;
     reazonProcessorRef.current = processor;
     reazonSilentGainRef.current = silentGain;
-  }, [sendReazonChunk]);
+  }, [recognitionSpanConfig, sendReazonChunk]);
 
   const stopReazonCapture = useCallback((flush = true) => {
     if (flush && reazonSampleCountRef.current >= SAMPLE_RATE) {
@@ -536,8 +548,12 @@ const SpeechRecognitionComponent = () => {
         startReazonCapture(stream);
         setReazonListening(true);
         setHeardSound(true);
-        setDiagnosticStatus({ tone: 'listening', message: '10秒ごとに端末内で音声を認識します。' });
-        addDiagnosticLog('start', 'ローカルReazonSpeechを開始');
+        const updateSeconds = recognitionSpanConfig.windowSeconds - recognitionSpanConfig.overlapSeconds;
+        setDiagnosticStatus({
+          tone: 'listening',
+          message: `${recognitionSpanConfig.windowSeconds}秒録音・約${updateSeconds}秒間隔で端末内認識します。`,
+        });
+        addDiagnosticLog('start', `ローカルReazonSpeechを${recognitionSpanConfig.label}で開始`);
       } catch {
         stopVolumeMeter();
         return;
@@ -606,11 +622,32 @@ const SpeechRecognitionComponent = () => {
         </select>
       </label>
       {recognitionMode === 'reazon-speech' && (
-        <section className="model-status" aria-label="ローカルモデルの状態">
-          <div><span>日本語モデル</span><output>{reazonModelState === 'ready' ? '準備完了' : reazonModelState === 'loading' ? `${Math.round(reazonProgress)}%` : reazonModelState === 'error' ? '読込失敗' : '初回約180MB'}</output></div>
-          <progress max={100} value={reazonProgress} />
-          <p>初回だけモデルを取得します。認識時の音声は端末外へ送信しません。</p>
-        </section>
+        <>
+          <section className="reazon-settings" aria-label="ReazonSpeech設定">
+            <label>
+              認識スパン
+              <select
+                aria-label="認識スパン"
+                value={recognitionSpan}
+                onChange={(event) => setRecognitionSpan(event.target.value as RecognitionSpan)}
+                disabled={isActive}
+              >
+                {Object.entries(RECOGNITION_SPANS).map(([value, config]) => (
+                  <option key={value} value={value}>{config.label}</option>
+                ))}
+              </select>
+            </label>
+            <p>
+              {recognitionSpanConfig.windowSeconds}秒の音声を、約
+              {recognitionSpanConfig.windowSeconds - recognitionSpanConfig.overlapSeconds}秒間隔で字幕にします。
+            </p>
+          </section>
+          <section className="model-status" aria-label="ローカルモデルの状態">
+            <div><span>日本語モデル</span><output>{reazonModelState === 'ready' ? '準備完了' : reazonModelState === 'loading' ? `${Math.round(reazonProgress)}%` : reazonModelState === 'error' ? '読込失敗' : '初回約180MB'}</output></div>
+            <progress max={100} value={reazonProgress} />
+            <p>初回だけモデルを取得します。認識時の音声は端末外へ送信しません。</p>
+          </section>
+        </>
       )}
       {webSpeechUnavailable && <p className="volume-meter-error">このブラウザはWeb Speech APIに対応していません。</p>}
       {microphoneUnavailable && <p className="volume-meter-error">マイクの使用を許可してください。</p>}
