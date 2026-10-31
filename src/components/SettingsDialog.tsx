@@ -4,11 +4,15 @@ import { ChevronDownIcon, CloseIcon, MicrophoneIcon } from './Icons';
 import { DiagnosticsPanel } from './DiagnosticsPanel';
 import { InputMeter } from './InputMeter';
 import type { DiagnosticLogEntry, DiagnosticStatus } from '../SpeechRecognitionComponent';
+import type { LocalModel, LocalModelConfig } from '../localModels';
 
 type Props = {
   active: boolean;
   mode: RecognitionMode;
   onModeChange: (mode: RecognitionMode) => void;
+  localModel: LocalModel;
+  localModels: Record<LocalModel, LocalModelConfig>;
+  onLocalModelChange: (model: LocalModel) => void;
   language: string;
   onLanguageChange: (language: string) => void;
   span: RecognitionSpan;
@@ -35,12 +39,12 @@ type Props = {
   onOpenMicGuide?: () => void;
 };
 
-export function SettingsDialog({ active, mode, onModeChange, language, onLanguageChange, span, spans, onSpanChange, contrast, onContrastChange, focus, onFocusChange, lineHeight, onLineHeightChange, modelState, modelProgress, meter, diagnostics, onClose, onOpenMicGuide }: Props) {
+export function SettingsDialog({ active, mode, onModeChange, localModel, localModels, onLocalModelChange, language, onLanguageChange, span, spans, onSpanChange, contrast, onContrastChange, focus, onFocusChange, lineHeight, onLineHeightChange, modelState, modelProgress, meter, diagnostics, onClose, onOpenMicGuide }: Props) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const modelLabel = modelState === 'ready' ? 'オフライン準備完了'
     : modelState === 'loading' ? `取得中 ${Math.round(modelProgress)}%`
-      : modelState === 'error' ? '読み込みに失敗しました' : '初回のみ約180MB取得します';
+      : modelState === 'error' ? '読み込みに失敗しました' : `初回のみ${localModels[localModel].downloadSize}取得します`;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -68,9 +72,10 @@ export function SettingsDialog({ active, mode, onModeChange, language, onLanguag
           <div className="settings-grid">
             <label className="modern-field"><span>認識方式</span><span className="select-shell"><select value={mode} onChange={(event) => onModeChange(event.target.value as RecognitionMode)} disabled={active}><option value="reazon-speech">端末内認識（おすすめ）</option><option value="web-speech">Web Speech</option></select><ChevronDownIcon /></span></label>
             <label className="modern-field"><span>言語</span><span className="select-shell"><select value={language} onChange={(event) => onLanguageChange(event.target.value)} disabled={active || mode === 'reazon-speech'}><option value="ja-JP">日本語</option><option value="en-US">English</option></select><ChevronDownIcon /></span></label>
+            {mode === 'reazon-speech' && <label className="modern-field settings-wide"><span>端末内モデル</span><span className="select-shell"><select aria-label="端末内モデル" value={localModel} onChange={(event) => onLocalModelChange(event.target.value as LocalModel)} disabled={active}>{Object.entries(localModels).map(([value, config]) => <option key={value} value={value}>{config.label}</option>)}</select><ChevronDownIcon /></span><small>{localModel === 'haas' ? '認識精度が高い代わりに、取得量と処理の負荷が大きくなります。' : '取得量が少なく、多くの端末で軽快に動作します。'}</small></label>}
             {mode === 'reazon-speech' && <label className="modern-field settings-wide"><span>字幕の更新速度</span><span className="select-shell"><select aria-label="字幕の更新速度" value={span} onChange={(event) => onSpanChange(event.target.value as RecognitionSpan)} disabled={active}>{Object.entries(spans).map(([value, config]) => <option key={value} value={value}>{config.label}</option>)}</select><ChevronDownIcon /></span><small>{spanConfig.windowSeconds}秒の音声を約{spanConfig.windowSeconds - spanConfig.overlapSeconds}秒間隔で処理します。</small></label>}
           </div>
-          {mode === 'reazon-speech' && <div className={`model-readiness state-${modelState}`} aria-label="ローカルモデルの状態"><div><strong>日本語オフラインモデル</strong><output>{modelLabel}</output></div><progress max="100" value={modelProgress} aria-label={`モデル読み込み ${Math.round(modelProgress)}%`} /><p>音声は端末外へ送信しません。</p></div>}
+          {mode === 'reazon-speech' && <div className={`model-readiness state-${modelState}`} aria-label="ローカルモデルの状態"><div><strong>日本語オフラインモデル（{localModels[localModel].name}）</strong><output>{modelLabel}</output></div><progress max="100" value={modelProgress} aria-label={`モデル読み込み ${Math.round(modelProgress)}%`} /><p>音声は端末外へ送信しません。</p></div>}
         </section>
 
         <section className="settings-section" aria-labelledby="caption-style-title">
