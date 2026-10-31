@@ -124,3 +124,27 @@ test('keeps the latest diagnosis visible across automatic Web Speech restarts', 
   });
   expect(within(dialog).getByText(/直近の判定/).closest('p')).toHaveTextContent('音は届いていますが、発話として判定されませんでした。');
 });
+
+test('switches the on-device model between ReazonSpeech and Haas', () => {
+  render(<App />);
+  const dialog = openSettings();
+  const model = within(dialog).getByRole('combobox', { name: '端末内モデル' });
+  expect(model).toHaveValue('reazonspeech');
+  expect(within(dialog).getByLabelText('ローカルモデルの状態')).toHaveTextContent('ReazonSpeech');
+
+  fireEvent.change(model, { target: { value: 'haas' } });
+  expect(model).toHaveValue('haas');
+  expect(within(dialog).getByLabelText('ローカルモデルの状態')).toHaveTextContent('Haas');
+  expect(within(dialog).getByLabelText('ローカルモデルの状態')).toHaveTextContent('初回のみ約480MB');
+  expect(window.localStorage.getItem('hear-assist:local-model')).toBe('"haas"');
+
+  fireEvent.change(within(dialog).getByRole('combobox', { name: '認識方式' }), { target: { value: 'web-speech' } });
+  expect(within(dialog).queryByRole('combobox', { name: '端末内モデル' })).not.toBeInTheDocument();
+});
+
+test('falls back to ReazonSpeech when the stored model is unknown', () => {
+  window.localStorage.setItem('hear-assist:local-model', '"whisper"');
+  render(<App />);
+  const dialog = openSettings();
+  expect(within(dialog).getByRole('combobox', { name: '端末内モデル' })).toHaveValue('reazonspeech');
+});

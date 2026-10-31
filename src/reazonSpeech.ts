@@ -31,11 +31,15 @@ export const keepLastSamples = (chunks: Float32Array[], count: number) => {
   return joined.length <= count ? [joined] : [joined.slice(joined.length - count)];
 };
 
-const sliceAfterNonWhitespace = (value: string, count: number) => {
+// 重なりの判定では空白と句読点を無視する。モデルによってチャンク境界の句読点が変わるため。
+const IGNORED_FOR_OVERLAP = /[\s、。，．,.！？!?「」『』]/;
+const normalizeForOverlap = (value: string) => Array.from(value).filter((char) => !IGNORED_FOR_OVERLAP.test(char)).join('');
+
+const sliceAfterComparableChars = (value: string, count: number) => {
   let seen = 0;
   for (let index = 0; index < value.length; index += 1) {
-    if (!/\s/.test(value[index])) seen += 1;
-    if (seen >= count) return value.slice(index + 1).trim();
+    if (!IGNORED_FOR_OVERLAP.test(value[index])) seen += 1;
+    if (seen >= count) return value.slice(index + 1).replace(/^[\s、。，．,.]+/, '').trim();
   }
   return '';
 };
@@ -46,8 +50,8 @@ export const mergeTranscriptChunk = (current: string, incoming: string) => {
   if (!previous) return { transcript: next, addition: next };
   if (!next) return { transcript: previous, addition: '' };
 
-  const normalizedPrevious = previous.replace(/\s/g, '');
-  const normalizedNext = next.replace(/\s/g, '');
+  const normalizedPrevious = normalizeForOverlap(previous);
+  const normalizedNext = normalizeForOverlap(next);
   if (normalizedPrevious.endsWith(normalizedNext)) return { transcript: previous, addition: '' };
 
   let overlap = 0;
@@ -58,7 +62,7 @@ export const mergeTranscriptChunk = (current: string, incoming: string) => {
     }
   }
 
-  const remainder = overlap ? sliceAfterNonWhitespace(next, overlap) : next;
+  const remainder = overlap ? sliceAfterComparableChars(next, overlap) : next;
   if (!remainder) return { transcript: previous, addition: '' };
   return {
     transcript: `${previous}${/[。！？.!?]$/.test(previous) ? '' : ' '}${remainder}`,

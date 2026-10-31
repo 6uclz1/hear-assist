@@ -29,3 +29,11 @@ test('downsamples microphone audio to 16 kHz', () => {
   expect(output).toHaveLength(16_000);
   expect(output[0]).toBeCloseTo(0.5);
 });
+
+test('ignores punctuation differences at chunk boundaries', () => {
+  expect(mergeTranscriptChunk('打ち合わせがあります。資料は前日', 'があります資料は前日までに共有してください。')).toEqual({
+    transcript: '打ち合わせがあります。資料は前日 までに共有してください。',
+    addition: 'までに共有してください。',
+  });
+  expect(mergeTranscripts('資料は前日までに共有してください。', '共有してください')).toBe('資料は前日までに共有してください。');
+});

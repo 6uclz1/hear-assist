@@ -2,28 +2,49 @@
 
 import { initVADASRModule, OfflineRecognizer } from '@sherpaw/vad-asr';
 import { loadVirtualData } from '@sherpaw/preloader';
+import type { LocalModel } from './localModels';
 
 type WorkerRequest =
-  | { type: 'initialize'; baseUrl: string }
+  | { type: 'initialize'; model: LocalModel; baseUrl: string }
   | { type: 'transcribe'; session: number; id: number; samples: Float32Array }
   | { type: 'reset'; session: number }
   | { type: 'dispose' };
 
 type ModelFile = { sources: string[]; target: string; size: number };
+type ModelSpec = {
+  files: ModelFile[];
+  featureDim: number;
+  modelConfig: { modelType: string; modelingUnit?: string };
+};
 
-const MODEL_FILES: ModelFile[] = [
-  { sources: ['tokens.txt'], target: 'tokens.txt', size: 45_754 },
-  {
-    sources: [
-      'encoder-epoch-99-avg-1.int8.onnx.part-00',
-      'encoder-epoch-99-avg-1.int8.onnx.part-01',
+const partNames = (name: string, count: number) => Array.from(
+  { length: count },
+  (_, index) => `${name}.part-${String(index).padStart(2, '0')}`,
+);
+
+const MODEL_SPECS: Record<LocalModel, ModelSpec> = {
+  reazonspeech: {
+    files: [
+      { sources: ['tokens.txt'], target: 'tokens.txt', size: 45_754 },
+      { sources: partNames('encoder-epoch-99-avg-1.int8.onnx', 2), target: 'encoder.onnx', size: 154_670_139 },
+      { sources: ['decoder-epoch-99-avg-1.onnx'], target: 'decoder.onnx', size: 11_767_836 },
+      { sources: ['joiner-epoch-99-avg-1.int8.onnx'], target: 'joiner.onnx', size: 2_696_970 },
     ],
-    target: 'encoder.onnx',
-    size: 154_670_139,
+    featureDim: 80,
+    modelConfig: { modelType: 'transducer', modelingUnit: 'cjkchar' },
   },
-  { sources: ['decoder-epoch-99-avg-1.onnx'], target: 'decoder.onnx', size: 11_767_836 },
-  { sources: ['joiner-epoch-99-avg-1.int8.onnx'], target: 'joiner.onnx', size: 2_696_970 },
-];
+  // sherpa-onnx 互換の量子化版を scripts/haas/prepare_wasm_encoder.py で WASM 向けに変換したもの。
+  haas: {
+    files: [
+      { sources: ['tokens.txt'], target: 'tokens.txt', size: 28_704 },
+      { sources: partNames('encoder.wasm.onnx', 6), target: 'encoder.onnx', size: 452_958_828 },
+      { sources: ['decoder.onnx'], target: 'decoder.onnx', size: 15_661_602 },
+      { sources: ['joiner.onnx'], target: 'joiner.onnx', size: 12_158_641 },
+    ],
+    featureDim: 128,
+    modelConfig: { modelType: 'nemo_transducer' },
+  },
+};
 
 let recognizer: OfflineRecognizer | null = null;
 let currentSession = 0;
@@ -62,17 +83,18 @@ const fetchInto = async (
   return received;
 };
 
-const initialize = async (baseUrl: string) => {
+const initialize = async (model: LocalModel, baseUrl: string) => {
   if (recognizer) {
     send({ type: 'ready' });
     return;
   }
 
+  const spec = MODEL_SPECS[model];
   const module = await initVADASRModule();
-  const totalBytes = MODEL_FILES.reduce((sum, file) => sum + file.size, 0);
+  const totalBytes = spec.files.reduce((sum, file) => sum + file.size, 0);
   let completedBytes = 0;
 
-  for (const file of MODEL_FILES) {
+  for (const file of spec.files) {
     const data = new Uint8Array(file.size);
     let fileOffset = 0;
     for (const source of file.sources) {
@@ -91,14 +113,13 @@ const initialize = async (baseUrl: string) => {
   }
 
   recognizer = new OfflineRecognizer({
-    featConfig: { sampleRate: 16_000, featureDim: 80 },
+    featConfig: { sampleRate: 16_000, featureDim: spec.featureDim },
     modelConfig: {
       tokens: './tokens.txt',
       numThreads: 1,
       provider: 'cpu',
       debug: 0,
-      modelType: 'transducer',
-      modelingUnit: 'cjkchar',
+      ...spec.modelConfig,
       transducer: {
         encoder: './encoder.onnx',
         decoder: './decoder.onnx',
@@ -112,7 +133,7 @@ const initialize = async (baseUrl: string) => {
 };
 
 const transcribe = (request: Extract<WorkerRequest, { type: 'transcribe' }>) => {
-  if (!recognizer) throw new Error('ReazonSpeechモデルが未初期化です。');
+  if (!recognizer) throw new Error('音声認識モデルが未初期化です。');
   const stream = recognizer.createStream();
   try {
     stream.acceptWaveform(16_000, request.samples);
@@ -145,7 +166,7 @@ const processQueue = () => {
 workerScope.addEventListener('message', async (event: MessageEvent<WorkerRequest>) => {
   const request = event.data;
   try {
-    if (request.type === 'initialize') return await initialize(request.baseUrl.replace(/\/$/, ''));
+    if (request.type === 'initialize') return await initialize(request.model, request.baseUrl.replace(/\/$/, ''));
     if (request.type === 'reset') {
       currentSession = request.session;
       pending.splice(0).forEach((item) => send({ type: 'dropped', session: item.session, id: item.id }));

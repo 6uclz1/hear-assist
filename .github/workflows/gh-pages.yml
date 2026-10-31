@@ -57,6 +57,14 @@ jobs:
             "$model_dir/encoder-epoch-99-avg-1.int8.onnx" \
             dist/models/reazonspeech/encoder-epoch-99-avg-1.int8.onnx.part-
 
+      - name: Setup uv
+        if: github.event_name == 'push'
+        uses: astral-sh/setup-uv@v6
+
+      - name: Download Haas model
+        if: github.event_name == 'push'
+        run: scripts/haas/download.sh dist/models/haas
+
       - name: Deploy
         if: github.event_name == 'push'
         uses: peaceiris/actions-gh-pages@v4

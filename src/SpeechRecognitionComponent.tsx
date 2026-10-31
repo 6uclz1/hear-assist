@@ -6,6 +6,7 @@ import { MicModeDialog } from './components/MicModeDialog';
 import { SettingsDialog } from './components/SettingsDialog';
 import { createReazonWorker } from './createReazonWorker';
 import { useStoredState } from './hooks/useStoredState';
+import { isLocalModel, LOCAL_MODELS, type LocalModel } from './localModels';
 import { downsampleAudio, joinAudioChunks, keepLastSamples, mergeTranscriptChunk, SAMPLE_RATE } from './reazonSpeech';
 
 export type RecognitionMode = 'web-speech' | 'reazon-speech';
@@ -79,6 +80,9 @@ const SpeechRecognitionComponent = () => {
   
   const [recognitionMode, setRecognitionMode] = useStoredState<RecognitionMode>('hear-assist:recognition-mode', 'reazon-speech');
   const [recognitionSpan, setRecognitionSpan] = useStoredState<RecognitionSpan>('hear-assist:recognition-span', 'standard');
+  const [storedLocalModel, setLocalModel] = useStoredState<LocalModel>('hear-assist:local-model', 'reazonspeech');
+  const localModel = isLocalModel(storedLocalModel) ? storedLocalModel : 'reazonspeech';
+  const localModelName = LOCAL_MODELS[localModel].name;
   const [subtitleContrast, setSubtitleContrast] = useStoredState<SubtitleContrast>('hear-assist:contrast', 'dark');
   const [subtitleFocus, setSubtitleFocus] = useStoredState<SubtitleFocus>('hear-assist:focus', 'two');
   const [subtitleLineHeight, setSubtitleLineHeight] = useStoredState('hear-assist:line-height', 1.5);
@@ -243,7 +247,7 @@ const SpeechRecognitionComponent = () => {
       } else if (message.type === 'ready') {
         setReazonModelState('ready');
         setReazonProgress(100);
-        addDiagnosticLog('model', 'ReazonSpeechモデルの準備完了');
+        addDiagnosticLog('model', `${localModelName}モデルの準備完了`);
         reazonInitializationHandlersRef.current?.resolve();
         reazonInitializationHandlersRef.current = null;
       } else if ((message.type === 'result' || message.type === 'dropped') && message.id !== undefined) {
@@ -261,7 +265,7 @@ const SpeechRecognitionComponent = () => {
         setLastProcessedAt(Date.now());
         if (message.type === 'result' && message.text) {
           setReceivedResult(true);
-          setDiagnosticStatus({ tone: 'success', message: 'ReazonSpeechの認識結果を受信しました。' });
+          setDiagnosticStatus({ tone: 'success', message: `${localModelName}の認識結果を受信しました。` });
         }
         if (message.type === 'dropped') {
           setDroppedChunkCount((count) => count + 1);
@@ -271,7 +275,7 @@ const SpeechRecognitionComponent = () => {
         flushReazonResults();
         queueMicrotask(pumpReazonQueue);
       } else if (message.type === 'error') {
-        const error = new Error(message.message || 'ReazonSpeechの初期化に失敗しました。');
+        const error = new Error(message.message || `${localModelName}の初期化に失敗しました。`);
         if (message.id !== undefined) {
           if (message.session !== undefined && message.session !== reazonSessionRef.current) return;
           reazonResultsRef.current.set(message.id, null);
@@ -294,7 +298,7 @@ const SpeechRecognitionComponent = () => {
       }
     });
     worker.addEventListener('error', () => {
-      const error = new Error('ReazonSpeechワーカーを起動できませんでした。');
+      const error = new Error('音声認識ワーカーを起動できませんでした。');
       setReazonModelState('error');
       setDiagnosticStatus({ tone: 'error', message: error.message });
       reazonInitializationHandlersRef.current?.reject(error);
@@ -305,12 +309,12 @@ const SpeechRecognitionComponent = () => {
     });
 
     const modelBaseUrl = new URL(
-      `${import.meta.env.BASE_URL}models/reazonspeech/`,
+      `${import.meta.env.BASE_URL}models/${localModel}/`,
       window.location.origin,
     ).toString();
-    worker.postMessage({ type: 'initialize', baseUrl: modelBaseUrl });
+    worker.postMessage({ type: 'initialize', model: localModel, baseUrl: modelBaseUrl });
     return initialization;
-  }, [addDiagnosticLog, flushReazonResults, pumpReazonQueue, reazonModelState]);
+  }, [addDiagnosticLog, flushReazonResults, localModel, localModelName, pumpReazonQueue, reazonModelState]);
 
   const sendReazonChunk = useCallback((samples: Float32Array) => {
     if (samples.length < SAMPLE_RATE || !reazonWorkerRef.current) return;
@@ -735,7 +739,7 @@ const SpeechRecognitionComponent = () => {
           tone: 'listening',
           message: `${recognitionSpanConfig.windowSeconds}秒録音・約${updateSeconds}秒間隔で端末内認識します。`,
         });
-        addDiagnosticLog('start', `ローカルReazonSpeechを${recognitionSpanConfig.label}で開始`);
+        addDiagnosticLog('start', `端末内の${localModelName}を${recognitionSpanConfig.label}で開始`);
       }
       if (isIOS && window.localStorage.getItem('hear-assist:mic-guide-seen') !== 'true') {
         setShowMicModeGuide(true);
@@ -764,7 +768,7 @@ const SpeechRecognitionComponent = () => {
       setOldestPendingAt(null);
       setReazonPendingCount(0);
       stopReazonCapture(false);
-      addDiagnosticLog('stop', 'ローカルReazonSpeechを停止');
+      addDiagnosticLog('stop', `端末内の${localModelName}を停止`);
     } else {
       SpeechRecognition.stopListening();
       stopVolumeMeter();
@@ -801,6 +805,20 @@ const SpeechRecognitionComponent = () => {
     setDiagnosticFinding(null);
     setLastProcessedAt(null);
     setRecognitionStartedAt(null);
+  };
+  // 別のモデルを読み込んだワーカーは使い回せないため、切り替え時に破棄して次回開始時に読み込み直す。
+  const changeLocalModel = (model: LocalModel) => {
+    if (model === localModel) return;
+    reazonWorkerRef.current?.postMessage({ type: 'dispose' });
+    reazonWorkerRef.current?.terminate();
+    reazonWorkerRef.current = null;
+    reazonInitializationHandlersRef.current = null;
+    reazonInitializationRef.current = null;
+    setReazonModelState('idle');
+    setReazonProgress(0);
+    setLocalModel(model);
+    setDiagnosticStatus({ tone: 'idle', message: '開始すると音声認識の状態を診断します。' });
+    setDiagnosticFinding(null);
   };
   const openSettings = useCallback(() => setShowSettings(true), []);
   const closeSettings = useCallback(() => setShowSettings(false), []);
@@ -839,7 +857,7 @@ const SpeechRecognitionComponent = () => {
     <main id="main-content" className="app-shell">
       <h1 className="visually-hidden">Hear Assist</h1>
       <AutoScrollingText text={displayedTranscript} highlightedText={displayedHighlight} active={isActive} status={captionStatus} lastRecognitionLabel={lastRecognitionLabel} inputLevel={{ rms: volumeRms, db: volumeDb, level: volumeLevel }} contrast={subtitleContrast} focus={subtitleFocus} lineHeight={subtitleLineHeight} startDisabled={startDisabled} onStart={startClick} onStop={stopClick} onClear={clearTranscript} onOpenSettings={openSettings} />
-      {showSettings && <SettingsDialog active={isActive || starting} mode={recognitionMode} onModeChange={changeRecognitionMode} language={selectedLanguage} onLanguageChange={setSelectedLanguage} span={recognitionSpan} spans={RECOGNITION_SPANS} onSpanChange={setRecognitionSpan} contrast={subtitleContrast} onContrastChange={setSubtitleContrast} focus={subtitleFocus} onFocusChange={setSubtitleFocus} lineHeight={subtitleLineHeight} onLineHeightChange={setSubtitleLineHeight} modelState={reazonModelState} modelProgress={reazonProgress} meter={{ level: volumeLevel, rms: volumeRms, db: volumeDb, error: meterError }} diagnostics={{ status: diagnosticStatus, finding: diagnosticFinding, pendingCount: reazonPendingCount, steps: [heardSound, detectedSpeech, receivedResult], labels: stepLabels, logs: diagnosticLog }} onClose={closeSettings} onOpenMicGuide={isIOS ? openMicGuide : undefined} />}
+      {showSettings && <SettingsDialog active={isActive || starting} mode={recognitionMode} onModeChange={changeRecognitionMode} localModel={localModel} localModels={LOCAL_MODELS} onLocalModelChange={changeLocalModel} language={selectedLanguage} onLanguageChange={setSelectedLanguage} span={recognitionSpan} spans={RECOGNITION_SPANS} onSpanChange={setRecognitionSpan} contrast={subtitleContrast} onContrastChange={setSubtitleContrast} focus={subtitleFocus} onFocusChange={setSubtitleFocus} lineHeight={subtitleLineHeight} onLineHeightChange={setSubtitleLineHeight} modelState={reazonModelState} modelProgress={reazonProgress} meter={{ level: volumeLevel, rms: volumeRms, db: volumeDb, error: meterError }} diagnostics={{ status: diagnosticStatus, finding: diagnosticFinding, pendingCount: reazonPendingCount, steps: [heardSound, detectedSpeech, receivedResult], labels: stepLabels, logs: diagnosticLog }} onClose={closeSettings} onOpenMicGuide={isIOS ? openMicGuide : undefined} />}
       <Activity mode={showMicModeGuide ? 'visible' : 'hidden'}><MicModeDialog onClose={() => setShowMicModeGuide(false)} /></Activity>
     </main>
   );

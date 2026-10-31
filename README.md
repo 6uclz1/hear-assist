@@ -5,9 +5,11 @@ iPhone などのマイク入力を、大きく読みやすい字幕として表�
 ## 音声認識方式
 
 - **Web Speech**: ブラウザ標準の音声認識を利用します。
-- **ReazonSpeech（端末内）**: 日本語モデルを Web Worker で実行し、音声を端末外へ送信しません。
+- **端末内認識**: 日本語モデルを Web Worker で実行し、音声を端末外へ送信しません。モデルは次の2つから選べます。
+  - **標準（ReazonSpeech）**: 初回の取得は約180 MBです。
+  - **高精度（Haas）**: [Haas-ja-v1.0](https://huggingface.co/third-intelligence/Haas-ja-v1.0) を使います。初回の取得は約480 MBで、処理の負荷も大きくなります。
 
-ReazonSpeech は既定の認識方式です。VAD に頼らず、重なりのある固定長音声を処理します。更新速度は、高速（4秒）、標準（6秒）、高精度（10秒）から選べます。初回は量子化モデルと WebAssembly ランタイムを約180 MBダウンロードします。
+端末内認識（ReazonSpeech）が既定です。VAD に頼らず、重なりのある固定長音声を処理します。更新速度は、高速（4秒）、標準（6秒）、高精度（10秒）から選べます。
 
 日常画面は字幕と大きな開始・停止操作だけに絞り、詳細設定と診断は設定ダイアログへ分離しています。字幕画面には次の機能があります。
 
@@ -34,6 +36,10 @@ npm start
 - `npm run build`: TypeScript を検査し、Vite で本番ビルド
 - `npm run check`: テスト、lint、ビルドをまとめて実行
 
+### 端末内モデルをローカルで確認する
+
+モデル本体はリポジトリに含めません。Haas は `scripts/haas/download.sh`（`uv` が必要）で `public/models/haas/` に配置できます。iOS Safari は http で開いたページの WebAssembly が極端に遅く、マイクも使えないため、iPhone 実機では `npm run build` のあと `scripts/haas/serve_https.py` で HTTPS 配信して確認します。
+
 ## 技術構成
 
 - React 19 / React Compiler
@@ -41,8 +47,8 @@ npm start
 - Vite 8
 - Vitest / Testing Library
 - vite-plugin-pwa / Workbox
-- ReazonSpeech / sherpa-onnx
+- ReazonSpeech / Haas-ja-v1.0 / sherpa-onnx
 
-モデル本体はリポジトリに含めません。`master` の GitHub Pages ワークフローが公式の `sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01` を取得し、デプロイ成果物へ追加します。GitHub Pages の制限に合わせてエンコーダーを分割し、ブラウザ内で再構成します。
+モデル本体はリポジトリに含めません。`master` の GitHub Pages ワークフローが公式の `sherpa-onnx-zipformer-ja-reazonspeech-2024-08-01` と、Haas-ja-v1.0 の sherpa-onnx 互換量子化版（[oboroge0/Haas-ja-v1.0-onnx-quantized](https://huggingface.co/oboroge0/Haas-ja-v1.0-onnx-quantized)）を取得し、デプロイ成果物へ追加します。Haas は sherpa-onnx の WebAssembly 版で読めるよう、外部データの埋め込みと `ConvInteger` 重みの uint8 化を行います（計算結果は変わりません）。GitHub Pages の制限に合わせてエンコーダーを分割し、ブラウザ内で再構成します。
 
-[ReazonSpeech モデル](https://huggingface.co/reazon-research/reazonspeech-k2-v2)、[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)、ブラウザ用ラッパーは Apache License 2.0 で配布されています。
+[ReazonSpeech モデル](https://huggingface.co/reazon-research/reazonspeech-k2-v2)、[Haas-ja-v1.0](https://huggingface.co/third-intelligence/Haas-ja-v1.0)、[sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)、ブラウザ用ラッパーは Apache License 2.0 で配布されています。

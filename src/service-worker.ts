@@ -32,6 +32,14 @@ registerRoute(
 );
 
 registerRoute(
+  ({ url }) => url.origin === self.location.origin && url.pathname.includes('/models/haas/'),
+  new CacheFirst({
+    cacheName: 'haas-v1',
+    plugins: [new ExpirationPlugin({ maxEntries: 12, maxAgeSeconds: 30 * 24 * 60 * 60 })],
+  }),
+);
+
+registerRoute(
   ({ url }) => url.origin === self.location.origin && url.pathname.endsWith('.png'),
   new StaleWhileRevalidate({
     cacheName: 'images',
