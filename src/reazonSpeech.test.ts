@@ -1,4 +1,4 @@
-import { downsampleAudio, joinAudioChunks, keepLastSamples, mergeTranscriptChunk, mergeTranscripts } from './reazonSpeech';
+import { createDownsampler, downsampleAudio, joinAudioChunks, keepLastSamples, mergeTranscriptChunk, mergeTranscripts } from './reazonSpeech';
 
 test('merges the two-second transcript overlap without duplicating text', () => {
   expect(mergeTranscripts('今日は天気がいいですね', '天気がいいですね散歩しましょう')).toBe(
@@ -36,4 +36,20 @@ test('ignores punctuation differences at chunk boundaries', () => {
     addition: 'までに共有してください。',
   });
   expect(mergeTranscripts('資料は前日までに共有してください。', '共有してください')).toBe('資料は前日までに共有してください。');
+});
+
+test('keeps the 16 kHz sample count exact across small audio blocks', () => {
+  for (const rate of [44_100, 48_000]) {
+    const downsample = createDownsampler(rate);
+    const blocks = 3_750;
+    let total = 0;
+    for (let block = 0; block < blocks; block += 1) total += downsample(new Float32Array(128).fill(0.25)).length;
+    expect(Math.abs(total - (blocks * 128 * 16_000) / rate)).toBeLessThanOrEqual(1);
+  }
+});
+
+test('repeats samples instead of inserting silence below 16 kHz', () => {
+  const output = createDownsampler(8_000)(new Float32Array(8_000).fill(0.5));
+  expect(output).toHaveLength(16_000);
+  expect(output.every((sample) => sample === 0.5)).toBe(true);
 });

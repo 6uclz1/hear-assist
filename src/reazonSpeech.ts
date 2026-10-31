@@ -1,19 +1,40 @@
 const SAMPLE_RATE = 16_000;
 
-export const downsampleAudio = (input: Float32Array, inputRate: number) => {
-  if (inputRate === SAMPLE_RATE) return new Float32Array(input);
+// 入力を 16 kHz へ平均化して間引く。状態を持つので、細かいブロックに分けて渡しても
+// ブロック境界で丸め誤差が積み重ならず、出力サンプル数が実時間からずれない。
+// 16 kHz 未満の入力（Bluetooth マイクなど）では直前のサンプルを繰り返して補う。
+export const createDownsampler = (inputRate: number) => {
   const ratio = inputRate / SAMPLE_RATE;
-  const output = new Float32Array(Math.round(input.length / ratio));
+  let consumed = 0;
+  let produced = 0;
+  let boundary = ratio;
+  let sum = 0;
+  let count = 0;
+  let last = 0;
 
-  for (let index = 0; index < output.length; index += 1) {
-    const start = Math.floor(index * ratio);
-    const end = Math.min(input.length, Math.floor((index + 1) * ratio));
-    let sum = 0;
-    for (let sourceIndex = start; sourceIndex < end; sourceIndex += 1) sum += input[sourceIndex];
-    output[index] = sum / Math.max(1, end - start);
-  }
-  return output;
+  return (input: Float32Array) => {
+    if (inputRate === SAMPLE_RATE) return new Float32Array(input);
+    const output = new Float32Array(Math.ceil(input.length / ratio) + 2);
+    let written = 0;
+    for (let index = 0; index < input.length; index += 1) {
+      sum += input[index];
+      count += 1;
+      consumed += 1;
+      while (consumed >= Math.ceil(boundary)) {
+        last = count ? sum / count : last;
+        output[written] = last;
+        written += 1;
+        sum = 0;
+        count = 0;
+        produced += 1;
+        boundary = (produced + 1) * ratio;
+      }
+    }
+    return output.slice(0, written);
+  };
 };
+
+export const downsampleAudio = (input: Float32Array, inputRate: number) => createDownsampler(inputRate)(input);
 
 export const joinAudioChunks = (chunks: Float32Array[]) => {
   const size = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
