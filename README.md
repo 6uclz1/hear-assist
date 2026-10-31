@@ -22,12 +22,14 @@ iPhone などのマイク入力を、大きく読みやすい字幕として表�
 
 ## 開発
 
-Node.js 22 を推奨します。
+Node.js 24 を使います（`.nvmrc`）。
 
 ```sh
 npm ci
 npm start
 ```
+
+サプライチェーン攻撃対策として、`.npmrc` で依存パッケージのインストールスクリプト実行と git 経由の依存を禁止し、公開から7日未満のバージョンを解決しないようにしています（`min-release-age` は npm 11.10 以降で有効）。インストールスクリプトが必要な依存を追加するときは、内容を確認してから `npm install-scripts approve <pkg>` で `package.json` の `allowScripts` に登録します。CI では GitHub Actions をコミット SHA で固定し、npm の依存を実行するビルドジョブには読み取り権限だけを与え、デプロイジョブではモデルの SHA-256 を検証します。Dependabot も7日間の待機期間を置いて更新を提案します。
 
 主なコマンド:
 
@@ -44,7 +46,7 @@ npm start
 
 - React 19 / React Compiler
 - TypeScript
-- Vite 8
+- Vite 8 / AudioWorklet（16 kHz へのリサンプリングをオーディオスレッドで実行）
 - Vitest / Testing Library
 - vite-plugin-pwa / Workbox
 - ReazonSpeech / Haas-ja-v1.0 / sherpa-onnx

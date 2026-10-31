@@ -12,11 +12,25 @@ expected_encoder_size=452958828
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+# 取得したファイルの SHA-256（リビジョン固定に加え、配信元の改ざんや破損を検出する）。
+checksums="ec78b13c5d9f156cf0d5fdbd6b5aec5785680f319c92630c11d5d11b14b83a84  tokens.txt
+2947cb5512699cbba753fe45fe221428aadaa9856597debbb7aabe19cc253622  decoder.onnx
+8a68320e750890ff9e944a794b41ae1c42c6f439ac4c273503458a6b42adc12d  joiner.onnx
+aba291d61d3d594bc6fb8c7f90acbd980e7bc7bf6b7caaf3965ddc25e6f42fac  encoder.quantized.onnx
+30befbf6aeb75383e6551f5e58de53efdb76972ddc7d0f76070c517899873586  encoder.data"
+
 for file in tokens.txt decoder.onnx joiner.onnx encoder.quantized.onnx encoder.data; do
-  curl --fail --location --retry 3 --silent --show-error --output "$work/$file" "$base/$file"
+  curl --fail --location --proto '=https' --tlsv1.2 --retry 3 --silent --show-error --output "$work/$file" "$base/$file"
 done
 
-uv run --quiet --no-project --with onnx==1.23.2 --with numpy==2.5.4 \
+if command -v sha256sum > /dev/null; then
+  (cd "$work" && sha256sum --check --strict --quiet <<< "$checksums")
+else
+  (cd "$work" && shasum -a 256 --check --strict --quiet <<< "$checksums")
+fi
+
+# 推移的な依存も含めて解決結果を固定するため、この日時以降に公開されたパッケージは使わない。
+uv run --quiet --no-project --exclude-newer 2026-10-20T00:00:00Z --with onnx==1.23.2 --with numpy==2.5.4 \
   python "$repo_root/scripts/haas/prepare_wasm_encoder.py" \
   "$work/encoder.quantized.onnx" "$work/encoder.wasm.onnx"
 

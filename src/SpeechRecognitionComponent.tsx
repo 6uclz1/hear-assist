@@ -4,10 +4,11 @@ import './SpeechRecognitionComponent.css'
 import AutoScrollingText, { type CaptionStatus } from './AutoScrollingText';
 import { MicModeDialog } from './components/MicModeDialog';
 import { SettingsDialog } from './components/SettingsDialog';
+import { createAudioCapture, type AudioCapture } from './createAudioCapture';
 import { createReazonWorker } from './createReazonWorker';
 import { useStoredState } from './hooks/useStoredState';
 import { isLocalModel, LOCAL_MODELS, type LocalModel } from './localModels';
-import { downsampleAudio, joinAudioChunks, keepLastSamples, mergeTranscriptChunk, SAMPLE_RATE } from './reazonSpeech';
+import { joinAudioChunks, keepLastSamples, mergeTranscriptChunk, SAMPLE_RATE } from './reazonSpeech';
 
 export type RecognitionMode = 'web-speech' | 'reazon-speech';
 export type RecognitionSpan = 'fast' | 'standard' | 'accurate';
@@ -119,6 +120,7 @@ const SpeechRecognitionComponent = () => {
   const [receivedResult, setReceivedResult] = useState(false);
   const audioContextRef = useRef<AudioContext | null>(null);
   const microphoneStreamRef = useRef<MediaStream | null>(null);
+  const microphoneSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const meterAnimationFrameRef = useRef<number | null>(null);
   const lastMeterUpdateRef = useRef(0);
   const wasListeningRef = useRef(false);
@@ -127,9 +129,7 @@ const SpeechRecognitionComponent = () => {
   const reazonWorkerRef = useRef<Worker | null>(null);
   const reazonInitializationRef = useRef<Promise<void> | null>(null);
   const reazonInitializationHandlersRef = useRef<{ resolve: () => void; reject: (error: Error) => void } | null>(null);
-  const reazonProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const reazonSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const reazonSilentGainRef = useRef<GainNode | null>(null);
+  const reazonCaptureRef = useRef<AudioCapture | null>(null);
   const reazonChunksRef = useRef<Float32Array[]>([]);
   const reazonSampleCountRef = useRef(0);
   const reazonRequestIdRef = useRef(0);
@@ -348,6 +348,7 @@ const SpeechRecognitionComponent = () => {
 
     microphoneStreamRef.current?.getTracks().forEach((track) => track.stop());
     microphoneStreamRef.current = null;
+    microphoneSourceRef.current = null;
 
     if (audioContextRef.current) {
       void audioContextRef.current.close();
@@ -372,8 +373,17 @@ const SpeechRecognitionComponent = () => {
       const audioContext = new AudioContext();
       audioContextRef.current = audioContext;
 
+      // iOS の通話や他アプリの再生で止まった AudioContext を、画面表示中なら再開する。
+      audioContext.addEventListener('statechange', () => {
+        if (audioContext.state === 'running' || audioContext.state === 'closed') return;
+        if (intendedListeningRef.current && document.visibilityState === 'visible') {
+          audioContext.resume().catch(() => { /* unmute や画面復帰時に再試行する */ });
+        }
+      });
+
       const streamPromise = navigator.mediaDevices.getUserMedia({
         audio: {
+          channelCount: { ideal: 1 },
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
@@ -389,6 +399,7 @@ const SpeechRecognitionComponent = () => {
       source.connect(analyser);
 
       microphoneStreamRef.current = stream;
+      microphoneSourceRef.current = source;
       stream.getAudioTracks().forEach((track) => {
         track.addEventListener('mute', () => {
           if (intendedListeningRef.current) setInterruptionMessage('マイクが一時停止しました。通話や画面ロックの終了後に自動で再開します。');
@@ -436,20 +447,17 @@ const SpeechRecognitionComponent = () => {
     }
   }, [stopVolumeMeter]);
 
-  const startReazonCapture = useCallback((stream: MediaStream) => {
+  // 計測用と共有している MediaStreamAudioSourceNode から 16 kHz 音声を受け取り、固定長チャンクに区切る。
+  const startReazonCapture = useCallback(async () => {
     const audioContext = audioContextRef.current;
-    if (!audioContext) throw new Error('音声処理を開始できませんでした。');
-    const source = audioContext.createMediaStreamSource(stream);
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
-    const silentGain = audioContext.createGain();
-    silentGain.gain.value = 0;
+    const source = microphoneSourceRef.current;
+    if (!audioContext || !source) throw new Error('音声処理を開始できませんでした。');
 
     reazonChunksRef.current = [];
     reazonSampleCountRef.current = 0;
     const windowSamples = SAMPLE_RATE * recognitionSpanConfig.windowSeconds;
     const overlapSamples = SAMPLE_RATE * recognitionSpanConfig.overlapSeconds;
-    processor.onaudioprocess = (event) => {
-      const samples = downsampleAudio(event.inputBuffer.getChannelData(0), audioContext.sampleRate);
+    const capture = await createAudioCapture(audioContext, source, (samples) => {
       reazonChunksRef.current.push(samples);
       reazonSampleCountRef.current += samples.length;
 
@@ -459,26 +467,22 @@ const SpeechRecognitionComponent = () => {
         reazonSampleCountRef.current = reazonChunksRef.current[0]?.length || 0;
         setDetectedSpeech(true);
       }
-    };
-
-    source.connect(processor);
-    processor.connect(silentGain);
-    silentGain.connect(audioContext.destination);
-    reazonSourceRef.current = source;
-    reazonProcessorRef.current = processor;
-    reazonSilentGainRef.current = silentGain;
+    });
+    // モジュール読み込み中に停止・再接続された場合は、古いコンテキストの処理を残さない。
+    if (audioContextRef.current !== audioContext) {
+      capture.disconnect();
+      throw new Error('音声処理を開始できませんでした。');
+    }
+    reazonCaptureRef.current?.disconnect();
+    reazonCaptureRef.current = capture;
   }, [recognitionSpanConfig, sendReazonChunk]);
 
   const stopReazonCapture = useCallback((flush = true) => {
     if (flush && reazonSampleCountRef.current >= SAMPLE_RATE) {
       sendReazonChunk(joinAudioChunks(reazonChunksRef.current));
     }
-    reazonProcessorRef.current?.disconnect();
-    reazonSourceRef.current?.disconnect();
-    reazonSilentGainRef.current?.disconnect();
-    reazonProcessorRef.current = null;
-    reazonSourceRef.current = null;
-    reazonSilentGainRef.current = null;
+    reazonCaptureRef.current?.disconnect();
+    reazonCaptureRef.current = null;
     reazonChunksRef.current = [];
     reazonSampleCountRef.current = 0;
     setReazonListening(false);
@@ -512,7 +516,7 @@ const SpeechRecognitionComponent = () => {
           stopReazonCapture(false);
           const stream = await startVolumeMeter();
           if (!stream || !intendedListeningRef.current) throw new Error('マイクを再接続できませんでした。');
-          startReazonCapture(stream);
+          await startReazonCapture();
           setReazonListening(true);
         }
       } else if (!listening) {
@@ -730,7 +734,7 @@ const SpeechRecognitionComponent = () => {
         reazonRequestTimesRef.current.clear();
         setOldestPendingAt(null);
         setReazonPendingCount(0);
-        startReazonCapture(stream);
+        await startReazonCapture();
         setReazonListening(true);
         setRecognitionStartedAt(Date.now());
         setHeardSound(true);
